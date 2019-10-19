@@ -1,31 +1,145 @@
-from machine import *
+import machine
 import utime as time
 import struct
 import math
-# 0x6b = 107 --> GYRO/ACCEL address
-i2c = I2C(0, I2C.MASTER)
+import wifi
+import pyboard
+import pycom
+import json
+import _thread
+from ubirch import UbirchDataClient
+from uuid import UUID
+from network import WLAN
 
-print("Found I2C devices:", i2c.scan())
-print("Resetting accel and gyro ...")
-i2c.writeto_mem(0x6b, 0x22, 0x05)
-time.sleep(0.1)
-print("Enabling gyro ...")
-i2c.writeto_mem(0x6b, 0x10, 0xc0)
-print("Enabling accel ...")
-i2c.writeto_mem(0x6b, 0x1f, 0x38)
-i2c.writeto_mem(0x6b, 0x20, 0xc0)
-print("Entering gyro/accel read-loop ...")
-while True:
-    time.sleep(0.2)
-    print("Reading gyro ... ", end='')
-    i2c.writeto(0x6b, 0x98 & 0xff)
-    data = i2c.readfrom_mem(0x6b, 0x98, 6)
-    raw_x, raw_y, raw_z = struct.unpack_from('<hhh', data)
-    print("X: %d   Y: %d   Z: %d" % (raw_x * 0.00875, raw_y * 0.00875, raw_z * 0.00875))
-    print("Reading accel ... ", end="")
-    i2c.writeto(0x6b, 0xa8 & 0xff)
-    data = i2c.readfrom_mem(0x6b, 0xa8, 6)
-    raw_x, raw_y, raw_z = struct.unpack_from('<hhh', data)
-    print("X: %d   Y: %d   Z: %d -- %f - %f" % (raw_x * 0.00875, raw_y * 0.00875,
-          raw_z * 0.00875, math.atan2(-raw_x, math.sqrt(raw_y * raw_y + raw_z * raw_z)) * 180.0 / math.pi,
-          math.atan2(raw_y, raw_z) * 180.0 / math.pi))
+# bigger thread stack needed for the requests module used in UbirchDataClient (default: 4096)
+_thread.stack_size(8192)
+
+wlan = WLAN(mode=WLAN.STA)
+
+class Main:
+    def __init__(self) -> None:
+        self.uuid = UUID(b'UBIR' + 2 * machine.unique_id())
+        print("\n** UUID   : " + str(self.uuid) + "\n")
+
+        with open('config.json', 'r') as c:
+            self.cfg = json.load(c)
+
+        # try to connect via wifi, throws exception if no success
+        wifi.connect(self.cfg['networks'])
+
+        # ubirch data client for setting up ubirch protocol, authentication and data service
+        self.ubirch_data = UbirchDataClient(self.uuid, self.cfg)
+
+        # disable blue heartbeat blink
+        pycom.heartbeat(False)
+
+        # initialise the accelerometer
+        self.pytrack = pyboard.Pytrack()
+
+        # taken from LIS2HH12.py
+        #   ARG => threshold
+        #   3 => max 8G; resolution: 125   micro G
+        #   2 => max 4G; resolution: 62.5  micro G
+        #   0 => max 2G; resolution: 31.25 micro G
+        self.pytrack.accelerometer.set_full_scale(3)
+
+        # taken from LIS2HH12.py
+        #   ARG => duration
+        #   0 => POWER DOWN
+        #   1 => 10  Hz; resolution: 800 milli seconds; max duration: 204000 ms
+        #   2 => 50  Hz; resolution: 160 milli seconds; max duration: 40800  ms
+        #   3 => 100 Hz; resolution: 80  milli seconds; max duration: 20400  ms
+        #   4 => 200 Hz; resolution: 40  milli seconds; max duration: 10200  ms
+        #   5 => 400 Hz; resolution: 20  milli seconds; max duration: 5100   ms
+        #   6 => 500 Hz; resolution: 10  milli seconds; max duration: 2550   ms
+        self.pytrack.accelerometer.set_odr(6)
+
+    def send_data(self, data):
+        try:
+            print("SENDING:", data)
+            self.ubirch_data.send(data)
+        except Exception as e:
+            print("ERROR      sending data to ubirch:", e)
+            time.sleep(3)
+
+    def read_loop(self):
+        # get intervals
+        m_interval = self.cfg['measure_interval_s']
+        s_interval = self.cfg['send_interval_measurements']
+
+        total_measurements = 0
+
+        # data dict
+        data = {
+            "AccX": 0, # positive x accel
+            "AccY": 0, # positive y accel
+            "AccZ": 0, # positive z accel
+            "IAccX": 0, # negative x accel
+            "IAccY": 0, # negative y accel
+            "IAccZ": 0, # negative z accel
+        }
+
+        while True:
+            start_time = time.time()
+
+            # make sure device is still connected
+            if not wlan.isconnected():
+                wifi.connect(self.cfg['networks'])
+
+            # get data
+            try:
+                accel = self.pytrack.accelerometer.acceleration()
+                print("M[%6d]  x: %10f # y: %10f # z: %10f" % (total_measurements, accel[0], accel[1], accel[2]))
+            except Exception as e:
+                print("ERROR      can't read data:", e)
+
+            total_measurements += 1
+
+            # set values
+            if accel[0] < 0:
+                if abs(accel[0]) > data['IAccX']:
+                    data['AccX'] = 0
+                    data['IAccX'] = abs(accel[0])
+            else:
+                if accel[0] > data['AccX']:
+                    data['AccX'] = accel[0]
+                    data['IAccX'] = 0
+
+            if accel[1] < 0:
+                if abs(accel[1]) > data['IAccY']:
+                    data['AccY'] = 0
+                    data['IAccY'] = abs(accel[1])
+            else:
+                if accel[1] > data['AccY']:
+                    data['AccY'] = accel[1]
+                    data['IAccY'] = 0
+
+            if accel[2] < 0:
+                if abs(accel[2]) > data['IAccZ']:
+                    data['AccZ'] = 0
+                    data['IAccZ'] = abs(accel[2])
+            else:
+                if accel[2] > data['AccZ']:
+                    data['AccZ'] = accel[2]
+                    data['IAccZ'] = 0
+
+            # send data to ubirch data service and certificate to ubirch auth service
+            if total_measurements % s_interval == 0:
+                _thread.start_new_thread(self.send_data, [data.copy()])
+
+                # reset data
+                data = {
+                    "AccX": 0,
+                    "AccY": 0,
+                    "AccZ": 0,
+                    "IAccX": 0,
+                    "IAccY": 0,
+                    "IAccZ": 0,
+                }
+
+            passed_time = time.time() - start_time
+            if m_interval > passed_time:
+                time.sleep(m_interval - passed_time)
+
+main = Main()
+main.read_loop()
