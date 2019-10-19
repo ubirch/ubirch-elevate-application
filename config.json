@@ -1,0 +1,13 @@
+{
+  "networks": {
+    "NETWORK_NAME": "PASSPHRASE"
+  },
+  "timeout": 5000,
+  "retries": 10,
+  "password": "PASSWORD",
+  "keyService": "KEYSERVICE",
+  "niomon": "NIOMON",
+  "data": "DATA",
+  "measure_interval_s": 1,
+  "send_interval_measurements": 10
+}
