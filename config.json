@@ -1,0 +1,14 @@
+{
+  "networks": {
+    "Ubirch": "$teingrau"
+  },
+  "timeout": 5000,
+  "retries": 10,
+  "password": "",
+  "keyService": "https://key.dev.ubirch.com/api/keyService/v1/pubkey/mpack",
+  "niomon": "https://niomon.dev.ubirch.com/",
+  "data": "https://data.dev.ubirch.com/v1/msgpack",
+  "interrupt_threshold_mg": 2000,
+  "threshold_duration_ms": 32,
+  "send_interval_s": 10
+}

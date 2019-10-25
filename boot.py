@@ -1,5 +1,1 @@
-import network
-
-# disable wifi
-wifi = network.WLAN()
-wifi.deinit()
+# boot.py -- run on boot-up
