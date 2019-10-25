@@ -10,6 +10,7 @@ import _thread
 from ubirch import UbirchDataClient
 from uuid import UUID
 from network import WLAN
+<<<<<<< HEAD
 from machine import *
 
 # bigger thread stack needed for the requests module used in UbirchDataClient (default: 4096)
@@ -17,6 +18,11 @@ _thread.stack_size(16384)
 
 # address of the LIS2HH12 on the I2C bus
 LIS2HH12_ADDR = 30
+=======
+
+# bigger thread stack needed for the requests module used in UbirchDataClient (default: 4096)
+_thread.stack_size(8192)
+>>>>>>> bf48bad09fbb5f3c8d6f256007ec410d9a10e53a
 
 wlan = WLAN(mode=WLAN.STA)
 
@@ -58,6 +64,7 @@ class Main:
         #   6 => 500 Hz; resolution: 10  milli seconds; max duration: 2550   ms
         self.pytrack.accelerometer.set_odr(6)
 
+<<<<<<< HEAD
         # enable activity interrupt
         self.pytrack.accelerometer.enable_activity_interrupt(self.cfg['interrupt_threshold_mg'], self.cfg['threshold_duration_ms'], self.interrup_cb)
 
@@ -78,6 +85,8 @@ class Main:
         # re-enable interrupt
         self.pytrack.accelerometer.enable_activity_interrupt(self.cfg['interrupt_threshold_mg'], self.cfg['threshold_duration_ms'], self.interrup_cb)
 
+=======
+>>>>>>> bf48bad09fbb5f3c8d6f256007ec410d9a10e53a
     def send_data(self, data):
         try:
             print("SENDING:", data)
@@ -86,4 +95,88 @@ class Main:
             print("ERROR      sending data to ubirch:", e)
             time.sleep(3)
 
+<<<<<<< HEAD
 main = Main()
+=======
+    def read_loop(self):
+        # get intervals
+        m_interval = self.cfg['measure_interval_s']
+        s_interval = self.cfg['send_interval_measurements']
+
+        total_measurements = 0
+
+        # data dict
+        data = {
+            "AccX": 0, # positive x accel
+            "AccY": 0, # positive y accel
+            "AccZ": 0, # positive z accel
+            "IAccX": 0, # negative x accel
+            "IAccY": 0, # negative y accel
+            "IAccZ": 0, # negative z accel
+        }
+
+        while True:
+            start_time = time.time()
+
+            # make sure device is still connected
+            if not wlan.isconnected():
+                wifi.connect(self.cfg['networks'])
+
+            # get data
+            try:
+                accel = self.pytrack.accelerometer.acceleration()
+                print("M[%6d]  x: %10f # y: %10f # z: %10f" % (total_measurements, accel[0], accel[1], accel[2]))
+            except Exception as e:
+                print("ERROR      can't read data:", e)
+
+            total_measurements += 1
+
+            # set values
+            if accel[0] < 0:
+                if abs(accel[0]) > data['IAccX']:
+                    data['AccX'] = 0
+                    data['IAccX'] = abs(accel[0])
+            else:
+                if accel[0] > data['AccX']:
+                    data['AccX'] = accel[0]
+                    data['IAccX'] = 0
+
+            if accel[1] < 0:
+                if abs(accel[1]) > data['IAccY']:
+                    data['AccY'] = 0
+                    data['IAccY'] = abs(accel[1])
+            else:
+                if accel[1] > data['AccY']:
+                    data['AccY'] = accel[1]
+                    data['IAccY'] = 0
+
+            if accel[2] < 0:
+                if abs(accel[2]) > data['IAccZ']:
+                    data['AccZ'] = 0
+                    data['IAccZ'] = abs(accel[2])
+            else:
+                if accel[2] > data['AccZ']:
+                    data['AccZ'] = accel[2]
+                    data['IAccZ'] = 0
+
+            # send data to ubirch data service and certificate to ubirch auth service
+            if total_measurements % s_interval == 0:
+                _thread.start_new_thread(self.send_data, [data.copy()])
+
+                # reset data
+                data = {
+                    "AccX": 0,
+                    "AccY": 0,
+                    "AccZ": 0,
+                    "IAccX": 0,
+                    "IAccY": 0,
+                    "IAccZ": 0,
+                }
+
+            passed_time = time.time() - start_time
+            if m_interval > passed_time:
+                time.sleep(m_interval - passed_time)
+
+main = Main()
+main.read_loop()
+>>>>>>> bf48bad09fbb5f3c8d6f256007ec410d9a10e53a
