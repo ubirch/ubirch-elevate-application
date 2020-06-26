@@ -10,7 +10,6 @@ import _thread
 from ubirch import UbirchDataClient
 from uuid import UUID
 from network import WLAN
-<<<<<<< HEAD
 from machine import *
 
 # bigger thread stack needed for the requests module used in UbirchDataClient (default: 4096)
@@ -18,11 +17,6 @@ _thread.stack_size(16384)
 
 # address of the LIS2HH12 on the I2C bus
 LIS2HH12_ADDR = 30
-=======
-
-# bigger thread stack needed for the requests module used in UbirchDataClient (default: 4096)
-_thread.stack_size(8192)
->>>>>>> bf48bad09fbb5f3c8d6f256007ec410d9a10e53a
 
 wlan = WLAN(mode=WLAN.STA)
 
@@ -64,13 +58,10 @@ class Main:
         #   6 => 500 Hz; resolution: 10  milli seconds; max duration: 2550   ms
         self.pytrack.accelerometer.set_odr(6)
 
-<<<<<<< HEAD
         # enable activity interrupt
         self.pytrack.accelerometer.enable_activity_interrupt(self.cfg['interrupt_threshold_mg'], self.cfg['threshold_duration_ms'], self.interrup_cb)
 
     def interrup_cb(self, pin):
-        print("ALARM!")
-
         # disable interrupt
         self.pytrack.accelerometer.enable_activity_interrupt(self.cfg['interrupt_threshold_mg'], self.cfg['threshold_duration_ms'], None)
 
@@ -85,8 +76,6 @@ class Main:
         # re-enable interrupt
         self.pytrack.accelerometer.enable_activity_interrupt(self.cfg['interrupt_threshold_mg'], self.cfg['threshold_duration_ms'], self.interrup_cb)
 
-=======
->>>>>>> bf48bad09fbb5f3c8d6f256007ec410d9a10e53a
     def send_data(self, data):
         try:
             print("SENDING:", data)
@@ -95,9 +84,6 @@ class Main:
             print("ERROR      sending data to ubirch:", e)
             time.sleep(3)
 
-<<<<<<< HEAD
-main = Main()
-=======
     def read_loop(self):
         # get intervals
         m_interval = self.cfg['measure_interval_s']
@@ -179,4 +165,3 @@ main = Main()
 
 main = Main()
 main.read_loop()
->>>>>>> bf48bad09fbb5f3c8d6f256007ec410d9a10e53a

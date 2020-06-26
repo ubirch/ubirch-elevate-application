@@ -1,27 +1,14 @@
 {
   "networks": {
-<<<<<<< HEAD
-    "Ubirch": "$teingrau"
+    "": ""
   },
   "timeout": 5000,
   "retries": 10,
   "password": "",
-  "keyService": "https://key.dev.ubirch.com/api/keyService/v1/pubkey/mpack",
-  "niomon": "https://niomon.dev.ubirch.com/",
-  "data": "https://data.dev.ubirch.com/v1/msgpack",
+  "keyService": "",
+  "niomon": "",
+  "data": "",
   "interrupt_threshold_mg": 2000,
   "threshold_duration_ms": 32,
   "send_interval_s": 10
-=======
-    "NETWORK_NAME": "PASSPHRASE"
-  },
-  "timeout": 5000,
-  "retries": 10,
-  "password": "PASSWORD",
-  "keyService": "KEYSERVICE",
-  "niomon": "NIOMON",
-  "data": "DATA",
-  "measure_interval_s": 1,
-  "send_interval_measurements": 10
->>>>>>> bf48bad09fbb5f3c8d6f256007ec410d9a10e53a
 }
