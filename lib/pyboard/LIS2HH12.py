@@ -2,6 +2,7 @@ import math
 import time
 import struct
 from machine import Pin
+import ubinascii
 
 
 FULL_SCALE_2G = const(0)
@@ -24,19 +25,24 @@ class LIS2HH12:
     ACC_I2CADDR = const(30)
 
     PRODUCTID_REG = const(0x0F)
+    ACT_THS = const(0x1E)
+    ACT_DUR = const(0x1F)
     CTRL1_REG = const(0x20)
     CTRL2_REG = const(0x21)
     CTRL3_REG = const(0x22)
     CTRL4_REG = const(0x23)
     CTRL5_REG = const(0x24)
+    CTRL6_REG = const(0x25)
+    CTRL7_REG = const(0x26)
+    STATUS_REG = const(0x27)
     ACC_X_L_REG = const(0x28)
     ACC_X_H_REG = const(0x29)
     ACC_Y_L_REG = const(0x2A)
     ACC_Y_H_REG = const(0x2B)
     ACC_Z_L_REG = const(0x2C)
     ACC_Z_H_REG = const(0x2D)
-    ACT_THS = const(0x1E)
-    ACT_DUR = const(0x1F)
+    FIFO_CTRL_REG = const(0x2E)
+    FIFO_SRC_REG = const(0x2F)
 
     SCALES = {FULL_SCALE_2G: 4000, FULL_SCALE_4G: 8000, FULL_SCALE_8G: 16000}
     ODRS = [0, 10, 50, 100, 200, 400, 800]
@@ -73,6 +79,29 @@ class LIS2HH12:
         # make a first read
         self.acceleration()
 
+    FIFO_EN = const(0x01 << 7) # CTRL3: FIFO enable. Default value 0. (0: disable; 1: enable)
+    INT1_OVR = const(0x01 << 2) # FIFO overrun signal on INT1
+    FMODE = const(0x01 << 5) # FIFO_CTRL: FIFO mode selection: FIFO mode. Stops collecting data when FIFO is full
+
+    def setup_fifo(self):
+        # set the register to enable the FIFO
+        self.set_register(CTRL3_REG,(FIFO_EN | INT1_OVR),0,(FIFO_EN | INT1_OVR))
+        # set mode to FIFO mode
+        self.set_register(FIFO_CTRL_REG, FMODE, 0, FMODE)
+
+    def restart_fifo(self):
+        # set mode to FIFO mode
+        self.set_register(FIFO_CTRL_REG, 0, 0, FMODE)
+        self.set_register(FIFO_CTRL_REG, FMODE, 0, FMODE)
+
+    def enable_fifo_interrupt(self, handler=None):
+        # Threshold is in mg, duration is ms
+        self._user_handler = handler
+        self.int_pin = Pin('P13', mode=Pin.IN)
+        self.int_pin.callback(trigger=Pin.IRQ_FALLING | Pin.IRQ_RISING, handler=self._int_handler)
+
+
+
     def acceleration(self):
         x = self.i2c.readfrom_mem(ACC_I2CADDR , ACC_X_L_REG, 2)
         self.x = struct.unpack('<h', x)
@@ -92,6 +121,10 @@ class LIS2HH12:
         x,y,z = self.acceleration()
         rad = -math.atan2(y, (math.sqrt(x*x + z*z)))
         return (180 / math.pi) * rad
+
+    def get_all_register(self):
+        reg = bytearray(self.i2c.readfrom_mem(ACC_I2CADDR, CTRL1_REG, 8))
+        print(ubinascii.hexlify(reg))
 
     def set_register(self, register, value, offset, mask):
         reg = bytearray(self.i2c.readfrom_mem(ACC_I2CADDR, register, 1))

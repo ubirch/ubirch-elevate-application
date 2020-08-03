@@ -40,7 +40,7 @@ class UbirchDataClient:
             auth_service_url = "https://niomon.{}.ubirch.com".format(cfg['env'])
 
         # this client generates a new key pair and registers the public key at the key service
-        self.__ubirch = UbirchClient(uuid, self.__headers, key_service_url, auth_service_url)
+        # self.__ubirch = UbirchClient(uuid, self.__headers, key_service_url, auth_service_url)
 
         self.__msg_type = 0
 
