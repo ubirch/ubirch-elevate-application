@@ -8,6 +8,32 @@ from sensor import MovementSensor
 from config import *
 import pycom
 
+
+LED_OFF = 0x000000
+
+#standard brightness: 1% (low-power)
+LED_WHITE     = 0x030303
+LED_GREEN     = 0x000600
+LED_YELLOW    = 0x060600
+LED_ORANGE    = 0x060200
+LED_RED       = 0x060000
+LED_PURPLE    = 0x030006
+LED_BLUE      = 0x000006
+LED_TURQUOISE = 0x010605
+LED_PINK      = 0x060002
+
+#full brightness (for errors etc)
+LED_WHITE_BRIGHT     = 0xffffff
+LED_GREEN_BRIGHT     = 0x00ff00
+LED_YELLOW_BRIGHT    = 0xffff00
+LED_ORANGE_BRIGHT    = 0xffa500
+LED_RED_BRIGHT       = 0xff0000
+LED_PURPLE_BRIGHT    = 0x800080
+LED_BLUE_BRIGHT      = 0x0000ff
+LED_TURQUOISE_BRIGHT = 0x40E0D0
+LED_PINK_BRIGHT      = 0xFF1493
+
+
 DROP_DURATION = 10
 ################################################################################
 # State Machine
@@ -18,6 +44,7 @@ class StateMachine(object):
         self.state = None
         self.states = {}
         self.sensor = MovementSensor()
+
         print("\n\n\n\n\n[Core] Initializing magic... ✨ ")
         print("[Core] Hello, I am " , ubinascii.hexlify(machine.unique_id()))
 
@@ -34,15 +61,15 @@ class StateMachine(object):
 
     def go_to_state(self, state_name):
         if self.state:
-            #print('Exiting %s' % (self.state.name))
+            print('Exiting %s' % (self.state.name))
             self.state.exit(self)
         self.state = self.states[state_name]
-        #print('Entering %s' % (self.state.name))
+        print('Entering %s' % (self.state.name))
         self.state.enter(self)
 
     def update(self):
         if self.state:
-            #print('Updating %s' % (self.state.name))
+            print('Updating %s' % (self.state.name))
             self.state.update(self)
 
     # When pausing, don't exit the state
@@ -62,15 +89,6 @@ class StateMachine(object):
     def reset_state_machine(self):
         """As indicated, reset the machines system's variables."""
         print('Resetting the machine')
-        # self.firework_color = random_color()
-        # self.burst_count = 0
-        # self.shower_count = 0
-        # self.firework_step_time = time.ticks_ms() + 0.05
-        # strip.fill(0)
-        # strip.show()
-
-
-
 
 ################################################################################
 # States
@@ -114,6 +132,7 @@ class ConnectingState(State):
 
     def enter(self, machine):
         State.enter(self, machine)
+        set_led(LED_TURQUOISE)
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -141,6 +160,7 @@ class SendingVersionDiagnosticsState(State):
         State.enter(self, machine)
         now = time.ticks_ms()
         self.version_wait_time = now + DROP_DURATION
+        set_led(LED_BLUE)
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -167,6 +187,7 @@ class SendingCellularDiagnosticsState(State):
         State.enter(self, machine)
         now = time.ticks_ms()
         self.cellular_wait_time = now + DROP_DURATION
+        set_led(LED_PURPLE)
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -179,8 +200,7 @@ class SendingCellularDiagnosticsState(State):
                 machine.go_to_state('waitingForOvershoot')
 
 
-# Show a shower of sparks following an explosion
-
+# wait here for acceleration to overshoot the threshold
 class WaitingForOvershootState(State):
 
     def __init__(self):
@@ -193,6 +213,7 @@ class WaitingForOvershootState(State):
 
     def enter(self, machine):
         State.enter(self, machine)
+        set_heartbeat()
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -204,30 +225,29 @@ class WaitingForOvershootState(State):
                 i = 0
                 while i < 3:
                     if speed_max[i] > g_THRESHOLD:
-                        # pycom.rgbled(0x007f00)
-                        machine.go_to_state('idle')
+                        set_led(LED_GREEN)
+                        machine.go_to_state('measuringPaused')
                     if speed_min[i] < -g_THRESHOLD:
-                        # pycom.rgbled(0x7f0000)
-                        machine.go_to_state('idle')
+                        set_led(LED_RED)
+                        machine.go_to_state('measuringPaused')
                     i += 1
 
 
-# Do nothing, wait to be reset
-
-class IdleState(State):
+# Send the data away
+class MeasuringPausedState(State):
 
     def __init__(self):
         super().__init__()
-        #self.cellular_wait_time = 0
+        self.cellular_wait_time = 0
 
     @property
     def name(self):
-        return 'idle'
+        return 'measuringPaused'
 
     def enter(self, machine):
         State.enter(self, machine)
-        #now = time.ticks_ms()
-        #self.cellular_wait_time = now + 1000
+        now = time.ticks_ms()
+        self.cellular_wait_time = now + 1000
         print(machine.sensor.speed_max, machine.sensor.speed_min)
         machine.sensor.speed_max[0] = 0.0
         machine.sensor.speed_max[1] = 0.0
@@ -241,25 +261,22 @@ class IdleState(State):
 
     def update(self, machine):
         if State.update(self, machine):
-            #now = time.ticks_ms()
-            #if now >= self.cellular_wait_time:
-            # pycom.rgbled(0x000000)
-            machine.go_to_state('waitingForOvershoot')
-
-
-
+            now = time.ticks_ms()
+            if now >= self.cellular_wait_time:
+                set_led(LED_OFF)
+                machine.go_to_state('waitingForOvershoot')
 
 # Reset the LEDs and audio, start the servo raising the ball
 # When the switch is released, stop the ball and move to waiting
 
-class RaisingState(State):
+class ErrorState(State):
 
     def __init__(self):
         super().__init__()
 
     @property
     def name(self):
-        return 'raising'
+        return 'error'
 
     def enter(self, machine):
         State.enter(self, machine)
@@ -279,41 +296,11 @@ class RaisingState(State):
             if switch.rose:
                 machine.go_to_state('waiting')
 
-
-# Pause, resuming whem the switch is pressed again.
-# Reset if the switch has been held for a second.
-
-class PausedState(State):
-
-    def __init__(self):
-        super().__init__()
-        self.switch_pressed_at = 0
-        self.paused_servo = 0
-
-    @property
-    def name(self):
-        return 'paused'
-
-    def enter(self, machine):
-        State.enter(self, machine)
-        self.switch_pressed_at = time.ticks_ms()
-        if audio.playing:
-            audio.pause()
-        self.paused_servo = servo.throttle
-        servo.throttle = 0.0
-
-    def exit(self, machine):
-        State.exit(self, machine)
-
-    def update(self, machine):
-        if switch.fell:
-            if audio.paused:
-                audio.resume()
-            servo.throttle = self.paused_servo
-            self.paused_servo = 0.0
-            machine.resume_state(machine.paused_state)
-        elif not switch.value:
-            if time.ticks_ms() - self.switch_pressed_at > 1.0:
-                machine.go_to_state('raising')
-
 ################################################################################
+
+def set_led(led_color):
+    pycom.heartbeat(False)  # disable blue heartbeat blink
+    pycom.rgbled(led_color)
+
+def set_heartbeat():
+    pycom.heartbeat(True)

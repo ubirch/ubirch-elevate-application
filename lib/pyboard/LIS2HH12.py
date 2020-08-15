@@ -95,10 +95,10 @@ class LIS2HH12:
         self.set_register(FIFO_CTRL_REG, FMODE, 0, FMODE)
 
     def enable_fifo_interrupt(self, handler=None):
-        # Threshold is in mg, duration is ms
+        # enable the interrupt, which occurs, when fifo is full and set the corresponding handler
         self._user_handler = handler
         self.int_pin = Pin('P13', mode=Pin.IN)
-        self.int_pin.callback(trigger=Pin.IRQ_FALLING | Pin.IRQ_RISING, handler=self._int_handler)
+        self.int_pin.callback(trigger=Pin.IRQ_FALLING , handler=self._int_handler)
 
 
 

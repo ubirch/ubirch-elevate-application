@@ -15,7 +15,12 @@ import network
 import sys
 from state_machine import *
 
+from sensor import MovementSensor
 
+from microWorkers import MicroWorkers
+from time         import sleep
+
+print()
 
 # bigger thread stack needed for the requests module used in UbirchDataClient (default: 4096)
 _thread.stack_size(16384)
@@ -25,9 +30,6 @@ LIS2HH12_ADDR = 30
 
 wlan = WLAN(mode=WLAN.STA)
 
-
-# while True:
-#     root_controller.update()
 
 class Main:
     def __init__(self) -> None:
@@ -54,9 +56,8 @@ class Main:
         self.root_controller.add_state(SendingVersionDiagnosticsState())
         self.root_controller.add_state(SendingCellularDiagnosticsState())
         self.root_controller.add_state(WaitingForOvershootState())
-        self.root_controller.add_state(IdleState())
-        self.root_controller.add_state(RaisingState())
-        self.root_controller.add_state(PausedState())
+        self.root_controller.add_state(MeasuringPausedState())
+        self.root_controller.add_state(ErrorState())
         # start with the connecting state
         self.root_controller.go_to_state('connecting')
 
@@ -71,7 +72,6 @@ class Main:
             time.sleep(3)
 
 
-
     def read_loop(self):
         # get intervals
         m_interval = self.cfg['measure_interval_s']
@@ -80,56 +80,7 @@ class Main:
         while True:
 
             self.root_controller.update()
-            # start_time = time.time()
-            # # print("time:", start_time)
-            # if g_trigger:
-            #     g_trigger = False
-            #     self.calc_speed()
-
-            # make sure device is still connected
-            # if not wlan.isconnected():
-            #     wifi.connect(self.cfg['networks'])
-
-            # # get data
-            # try:
-            #     accel = self.pysense.accelerometer.acceleration()
-            #     print("M[%6d]  x: %10f # y: %10f # z: %10f" % (total_measurements, accel[0], accel[1], accel[2]))
-            # except Exception as e:
-            #     print("ERROR      can't read data:", e)
-
-
-            # # set values
-            # if accel[0] < 0:
-            #     if abs(accel[0]) > data['IAccX']:
-            #         data['AccX'] = 0
-            #         data['IAccX'] = abs(accel[0])
-            # else:
-            #     if accel[0] > data['AccX']:
-            #         data['AccX'] = accel[0]
-            #         data['IAccX'] = 0
-            #
-            # if accel[1] < 0:
-            #     if abs(accel[1]) > data['IAccY']:
-            #         data['AccY'] = 0
-            #         data['IAccY'] = abs(accel[1])
-            # else:
-            #     if accel[1] > data['AccY']:
-            #         data['AccY'] = accel[1]
-            #         data['IAccY'] = 0
-            #
-            # if accel[2] < 0:
-            #     if abs(accel[2]) > data['IAccZ']:
-            #         data['AccZ'] = 0
-            #         data['IAccZ'] = abs(accel[2])
-            # else:
-            #     if accel[2] > data['AccZ']:
-            #         data['AccZ'] = accel[2]
-            #         data['IAccZ'] = 0
-
-
-            # passed_time = time.time() - start_time
-            # if m_interval > passed_time:
-            #     time.sleep(m_interval - passed_time)
+            time.sleep(0.1)
 
 main = Main()
 main.read_loop()
