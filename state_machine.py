@@ -18,6 +18,7 @@ from error_handling import *
 from config import *
 from modem import get_imsi
 from connection import get_connection, NB_IoT
+from realtimeclock import enable_time_sync, wait_for_sync
 
 from helpers import LedBreath
 
@@ -66,6 +67,10 @@ class StateMachine(object):
         self.lte = LTE()
         self.cfg = []
         self.connection = None
+        self.uuid = {}
+        self.sim = None
+        self.key_name =""
+        self.api = None
 
         self.breath = LedBreath()
 
@@ -103,7 +108,7 @@ class StateMachine(object):
 
             # sensors = get_pyboard(self.cfg['board'])  # initialise the sensors on the pyboard
             self.connection = get_connection(self.lte, self.cfg)  # initialize connection object depending on config
-            api = ubirch.API(self.cfg)  # set up API for backend communication
+            self.api = ubirch.API(self.cfg)  # set up API for backend communication
         except Exception as e:
             print("\tERROR loading configuration")
             error_handler.log(e, COLOR_CONFIG_FAIL)
@@ -125,7 +130,7 @@ class StateMachine(object):
                 error_handler.log(e, COLOR_INET_FAIL, reset=True)
 
             try:
-                pin = bootstrap(imsi, api)
+                pin = bootstrap(imsi, self.api)
                 with open(pin_file, "wb") as f:
                     f.write(pin.encode())
             except Exception as e:
@@ -140,13 +145,13 @@ class StateMachine(object):
         # initialise ubirch SIM protocol
         print("++ initializing ubirch SIM protocol")
         try:
-            sim = ubirch.SimProtocol(lte=self.lte, at_debug=lvl_debug)
+            self.sim = ubirch.SimProtocol(lte=self.lte, at_debug=lvl_debug)
         except Exception as e:
             error_handler.log(e, COLOR_SIM_FAIL, reset=True)
 
         # unlock SIM
         try:
-            sim.sim_auth(pin)
+            self.sim.sim_auth(pin)
         except Exception as e:
             error_handler.log(e, COLOR_SIM_FAIL)
             # if PIN is invalid, there is nothing we can do -> block
@@ -159,9 +164,9 @@ class StateMachine(object):
                 pycom_machine.reset()
 
         # get UUID from SIM
-        key_name = "ukey"
-        uuid = sim.get_uuid(key_name)
-        print("UUID: " + str(uuid))
+        self.key_name = "ukey"
+        self.uuid = self.sim.get_uuid(self.key_name)
+        print("UUID: " + str(self.uuid))
 
 
     def add_state(self, state):
@@ -246,12 +251,17 @@ class ConnectingState(State):
 
     def _connect(self,machine):
         # connect to network
-        if machine.connection.isconnected() :
-            return True
-        machine.connection.connect()
-        if machine.connection.isconnected() :
-            return True
-        return False
+        try:
+            machine.connection.connect()
+            enable_time_sync()
+            print("\twaiting for time sync")
+            wait_for_sync(print_dots=False)
+        except Exception as e:
+            error_handler.log(e, COLOR_INET_FAIL, reset=True) #todo check reset
+            return False
+            
+        return True
+        
 
     def update(self, machine):
         if self._connect(machine):
@@ -357,11 +367,73 @@ class MeasuringPausedState(State):
     def name(self):
         return 'measuringPaused'
 
+    # send the event to data service and upp to niomon
+    def _send_event(self, machine):
+        print("SENDING")
+        # pack the message
+        event_data = {
+            'msg_type': 1,
+            'uuid': str(machine.uuid),
+            'timestamp': int(time.time()),
+            'data': {
+                'x_max': machine.sensor.speed_max[0],
+                'y_max': machine.sensor.speed_max[1],
+                'z_max': machine.sensor.speed_max[2],
+                'x_min': machine.sensor.speed_min[0],
+                'y_min': machine.sensor.speed_min[1],
+                'z_min': machine.sensor.speed_min[2]
+            }
+        }
+
+        serialized = serialize_json(event_data)
+        print("SERIALIZED:", serialized)    
+        
+        # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
+        try:
+            print("++ creating UPP")
+            upp = machine.sim.message_chained(machine.key_name, serialized, hash_before_sign=True)
+            print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
+        except Exception as e:
+            error_handler.log(e, COLOR_SIM_FAIL, reset=True) # todo check the reset
+
+        machine.connection.connect()
+
+        try:
+            # send data message to data service, with reconnects/modem resets if necessary
+            print("++ sending data")
+            try:
+                status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection, machine.api.send_data, machine.uuid, serialized)
+            except Exception as e:
+                error_handler.log(e, COLOR_MODEM_FAIL, reset=True) # todo check the reset
+
+            # communication worked in general, now check server response
+            if not 200 <= status_code < 300:
+                raise Exception("backend (data) returned error: ({}) {}".format(status_code, str(content)))
+
+            # send UPP to the ubirch authentication service to be anchored to the blockchain
+            print("++ sending UPP")
+            try:
+                status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection, machine.api.send_upp, machine.uuid, upp)
+            except Exception as e:
+                error_handler.log(e, COLOR_MODEM_FAIL, reset=True) # todo check the reset
+
+            # communication worked in general, now check server response
+            if not 200 <= status_code < 300:
+                raise Exception("backend (UPP) returned error: ({}) {}".format(status_code, str(content)))
+
+        except Exception as e:
+            error_handler.log(e, COLOR_BACKEND_FAIL)
+
     def enter(self, machine):
         State.enter(self, machine)
         now = time.ticks_ms()
         self.cellular_wait_time = now + 1000
         print(machine.sensor.speed_max, machine.sensor.speed_min)
+        ####
+
+        self._send_event(machine)
+
+        ####
         machine.sensor.speed_max[0] = 0.0
         machine.sensor.speed_max[1] = 0.0
         machine.sensor.speed_max[2] = 0.0
