@@ -1,11 +1,12 @@
 import usocket
 
-class Response:
 
+class Response:
     def __init__(self, f):
         self.raw = f
         self.encoding = "utf-8"
         self._cached = None
+        self.status_code = None
 
     def close(self):
         if self.raw:
@@ -33,6 +34,7 @@ class Response:
 
 
 def request(method, url, data=None, json=None, headers={}, stream=None):
+    # print("request POST " + url)
     try:
         proto, dummy, host, path = url.split("/", 3)
     except ValueError:
@@ -50,14 +52,19 @@ def request(method, url, data=None, json=None, headers={}, stream=None):
         host, port = host.split(":", 1)
         port = int(port)
 
+    usocket.dnsserver(1, '8.8.4.4')
+    usocket.dnsserver(0, '8.8.8.8')
+    # print(usocket.dnsserver())
+
     ai = usocket.getaddrinfo(host, port)
     addr = ai[0][-1]
+    # print(addr)
 
     s = usocket.socket()
+    if proto == "https:":
+        s = ussl.wrap_socket(s, server_hostname=host)
     try:
         s.connect(addr)
-        if proto == "https:":
-            s = ussl.wrap_socket(s, server_hostname=host)
         s.write(b"%s /%s HTTP/1.0\r\n" % (method, path))
         if not "Host" in headers:
             s.write(b"Host: %s\r\n" % host)
@@ -79,7 +86,7 @@ def request(method, url, data=None, json=None, headers={}, stream=None):
             s.write(data)
 
         l = s.readline()
-        #print(l)
+        # print(l)
         l = l.split(None, 2)
         status = int(l[1])
         reason = ""

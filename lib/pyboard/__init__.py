@@ -26,3 +26,20 @@ class Pytrack(Pycoproc):
         self.accelerometer = LIS2HH12(self)
         self.location = L76GNSS(self, timeout=30)
         self.voltage = self.read_battery_voltage
+
+def get_pyboard(type: str) -> Pyboard:
+    if type == "pysense":
+        return Pysense()
+    elif type == "pytrack":
+        return Pytrack()
+    elif type == "sht31":
+        return Sht31()
+    else:
+        raise Exception("Expansion board type {} not supported. Supported types: 'pysense' and 'pytrack'".format(type))
+
+
+def print_data(data: dict) -> None:
+    print("{")
+    for key in sorted(data):
+        print("  \"{}\": {},".format(key, data[key]))
+    print("}\n")

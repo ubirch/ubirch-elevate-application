@@ -1,3 +1,2 @@
-from .ubirch_client import *
-from .ubirch_protocol import *
-from .ubirch_data_client import *
+from .ubirch_api import API
+from .ubirch_sim import SimProtocol

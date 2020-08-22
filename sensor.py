@@ -1,5 +1,5 @@
 import pyboard
-from config import *
+from sensor_config import *
 
 class MovementSensor(object):
     
@@ -50,7 +50,7 @@ class MovementSensor(object):
     # It collects all data from the accelerometer and sets the trigger for the calculation.
     def accelerometer_interrupt_cb(self, pin):
         self.pysense.accelerometer.enable_fifo_interrupt(handler=None)
-        print("*")
+        #print("*")
         try:
             accel_tuple = self.pysense.accelerometer.acceleration()
             accel_list = list(accel_tuple)
