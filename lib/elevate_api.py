@@ -27,7 +27,7 @@ class ElevateAPI:
         self._elevate_headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'X-App-Token': 'fbdee021280b7b38629d94ad2008dada'
+            'X-App-Token': ''
         }
 
     def send_data(self, uuid: UUID, message: bytes) -> (int, bytes):
