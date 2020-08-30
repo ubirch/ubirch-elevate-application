@@ -66,12 +66,13 @@ class Main:
 
         # create the root controller as a state machine and add all the necessary states
         self.root_controller = StateMachine()
-        self.root_controller.add_state(ConnectingState())
-        self.root_controller.add_state(SendingVersionDiagnosticsState())
-        self.root_controller.add_state(SendingCellularDiagnosticsState())
-        self.root_controller.add_state(WaitingForOvershootState())
-        self.root_controller.add_state(MeasuringPausedState())
-        self.root_controller.add_state(ErrorState())
+        self.root_controller.add_state(StateConnecting())
+        self.root_controller.add_state(StateSendingVersionDiagnostics())
+        self.root_controller.add_state(StateSendingCellularDiagnostics())
+        self.root_controller.add_state(StateWaitingForOvershot())
+        self.root_controller.add_state(StateMeasuringPaused())
+        self.root_controller.add_state(StateInactive())
+        self.root_controller.add_state(StateError())
         # start with the connecting state
         self.root_controller.go_to_state('connecting')
 

@@ -1,17 +1,18 @@
 import pyboard
 from sensor_config import *
 
+
 class MovementSensor(object):
-    
+
     def __init__(self):
-        self.accel_xyz = []    
+        self.accel_xyz = []
         self.accel_smooth = []
         self.speed = []
         self.speed_smooth = []
         self.speed_filtered = []
         self.speed_filtered_smooth = []
-        self.speed_max = [0.0,0.0,0.0]
-        self.speed_min = [0.0,0.0,0.0]
+        self.speed_max = [0.0, 0.0, 0.0]
+        self.speed_min = [0.0, 0.0, 0.0]
         self.trigger = False
         self.overshoot = False
         self.alpha = g_ALPHA
@@ -45,12 +46,11 @@ class MovementSensor(object):
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb)
         print("int enabled")
 
-
     # The accelerometer interrupt callback is triggered, when the fifo of the accelerometer is full.
     # It collects all data from the accelerometer and sets the trigger for the calculation.
     def accelerometer_interrupt_cb(self, pin):
         self.pysense.accelerometer.enable_fifo_interrupt(handler=None)
-        #print("*")
+        # print("*")
         try:
             accel_tuple = self.pysense.accelerometer.acceleration()
             accel_list = list(accel_tuple)
@@ -76,7 +76,6 @@ class MovementSensor(object):
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb)
         self.trigger = True
 
-
     def globals_init(self):
         for i in range(32):
             self.accel_xyz.append([])
@@ -93,7 +92,6 @@ class MovementSensor(object):
                 self.speed_filtered[i].append(0.0)
                 self.speed_filtered_smooth[i].append(0.0)
 
-
     # calculate the speed from the given acceleration values
     def calc_speed(self):
         self.trigger = False
@@ -102,13 +100,13 @@ class MovementSensor(object):
             # self.speed_min[j] = 0.0
             # self.speed_max[j] = 0.0
 
-            self.accel_smooth[0][j] = self.alpha * self.accel_xyz[0][j]\
+            self.accel_smooth[0][j] = self.alpha * self.accel_xyz[0][j] \
                                       + (1 - self.alpha) * self.accel_smooth[-1][j]
             self.speed[0][j] = self.speed[-1][j] + self.accel_xyz[0][j] - self.accel_smooth[0][j]
-            self.speed_smooth[0][j] = self.alpha * self.speed[0][j]\
+            self.speed_smooth[0][j] = self.alpha * self.speed[0][j] \
                                       + (1 - self.alpha) * self.speed_smooth[-1][j]
             self.speed_filtered[0][j] = self.speed[0][j] - self.speed_smooth[0][j]
-            self.speed_filtered_smooth[0][j] = self.alpha * self.speed_filtered[0][j]\
+            self.speed_filtered_smooth[0][j] = self.alpha * self.speed_filtered[0][j] \
                                                + (1 - self.alpha) * self.speed_filtered_smooth[-1][j]
 
             if self.speed_filtered_smooth[0][j] > self.speed_max[j]:
@@ -119,18 +117,18 @@ class MovementSensor(object):
 
         # run through the ring
         i = 1
-    
+
         while i < 32:
             j = 0
             while j < 3:
                 self.accel_smooth[i][j] = self.alpha * self.accel_xyz[i][j] \
-                                          + (1 - self.alpha) * self.accel_smooth[i-1][j]
+                                          + (1 - self.alpha) * self.accel_smooth[i - 1][j]
                 self.speed[i][j] = self.speed[-1][j] + self.accel_xyz[i][j] - self.accel_smooth[i][j]
                 self.speed_smooth[i][j] = self.alpha * self.speed[i][j] \
-                                          + (1 - self.alpha) * self.speed_smooth[i-1][j]
+                                          + (1 - self.alpha) * self.speed_smooth[i - 1][j]
                 self.speed_filtered[i][j] = self.speed[i][j] - self.speed_smooth[i][j]
                 self.speed_filtered_smooth[i][j] = self.alpha * self.speed_filtered[i][j] \
-                                                   + (1 - self.alpha) * self.speed_filtered_smooth[i-1][j]
+                                                   + (1 - self.alpha) * self.speed_filtered_smooth[i - 1][j]
                 if self.speed_filtered_smooth[i][j] > self.speed_max[j]:
                     self.speed_max[j] = self.speed_filtered_smooth[i][j]
                 if self.speed_filtered_smooth[i][j] < self.speed_min[j]:
@@ -138,5 +136,5 @@ class MovementSensor(object):
                 j += 1
 
             i += 1
-        print(self.speed_min, self.speed_max)
+        # print(self.speed_min, self.speed_max)
         return self.speed_max, self.speed_min

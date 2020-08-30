@@ -15,10 +15,10 @@ import ubirch
 def mount_sd():
     try:
         sd = machine.SD()
-        try:#check if sd is already mounted
+        try:  # check if sd is already mounted
             os.stat('/sd')
             return True
-        except:#not mounted: continue
+        except:  # not mounted: continue
             pass
         os.mount(sd, '/sd')
         return True
@@ -160,9 +160,14 @@ def serialize_json(msg: dict) -> bytes:
         elif value_type is int:
             serialized += "{:d}".format(value)
         elif isinstance(value, float):
-            serialized += "\"{:.2f}\"".format(value)
+            serialized += "{:.4f}".format(value) # modified for elevate
         elif value_type is dict:
             serialized += serialize_json(value).decode()
+        elif value_type is bool:
+            if value == True:
+                serialized += "True"
+            else:
+                serialized += "False"
         else:
             raise Exception("unsupported data type {} for serialization in json message".format(value_type))
         serialized += ","
@@ -173,6 +178,8 @@ def serialize_json(msg: dict) -> bytes:
 def get_upp_payload(upp: bytes) -> bytes:
     """
     Get the payload of a Ubirch Protocol Message
+    :param upp: received UPP
+    :return: payload of the UPP
     """
     if upp[0] == 0x95 and upp[1] == 0x22:  # signed UPP
         payload_start_idx = 23
@@ -189,25 +196,51 @@ def get_upp_payload(upp: bytes) -> bytes:
     return upp[payload_start_idx:payload_start_idx + payload_len]
 
 
-
 class LedBreath(object):
+    """
+    Class LedBreath lets the RGB LED from the PyCom module breath
+    according to the time ticks.
+    If the breathing does not work for a while, it means the controller is not running
+    """
     def __init__(self):
+        self.period = 5000.0
         self.color = 0xFF00FF
         self.brightness = 0xFF
 
     def update(self):
-        _intensity = self.brightness/512.0*(math.sin(time.ticks_ms()/10000.0*2*math.pi)+1)
+        """
+        Update the breathing, means to calculate the new intensity value of the light
+        and set the RGB LED accordingly.
+        The breathing follows a sinewave with a period of self.period
+        and the time is controlled by time.ticks_ms().
+        """
+        # calculate the intensity
+        _intensity = self.brightness / 512.0 * (math.sin(time.ticks_ms() / self.period * 2 * math.pi) + 1)
+        # split the color into the RGB components
         _red = self.color >> 16 & 0xFF
         _green = self.color >> 8 & 0xFF
         _blue = self.color & 0xFF
-
-        _light = ((int)(_intensity * _red)  << 16) + \
+        # combine the intensity and the colors into the new ligh value
+        _light = ((int)(_intensity * _red) << 16) + \
                  ((int)(_intensity * _green) << 8) + \
                  ((int)(_intensity * _blue))
+        # set the RGBLED to the new value
         pycom.rgbled(_light)
 
-    def set_color(self,color):
+    def set_color(self, color):
+        """
+        set_color is used to set the color of the RGB LED and update it directly.
+        This color will stay until it is changed.
+        :param color: is the color value in R,G,B
+        """
         self.color = color & 0xFFFFFF
+        self.update()
 
-    def set_brightness(self,brghtns):
-        self.brightness = brghtns & 0xFF
+    def set_brightness(self, brightness):
+        """
+        set_brightness is used to set the brightness of the RGB LED light at maximum.
+        The default value is 0xFF
+        :param brightness: is the brightness at maximum of the breathing interval
+        """
+        self.brightness = brightness & 0xFF
+        self.update()
