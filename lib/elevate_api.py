@@ -24,11 +24,11 @@ class ElevateAPI:
     def __init__(self, cfg: dict):
         self.debug = True
         # cfg['debug']
-        self.data_url = cfg['elevate_data_url']
+        self.data_url = cfg['elevateDataUrl']
         self._elevate_headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'X-App-Token': cfg['elevate_api_token']
+            'X-App-Token': cfg['elevateApiToken']
         }
 
     def send_data(self, uuid: UUID, message: bytes) -> (int, bytes):
