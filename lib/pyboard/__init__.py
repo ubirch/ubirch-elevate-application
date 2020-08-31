@@ -27,6 +27,7 @@ class Pytrack(Pycoproc):
         self.location = L76GNSS(self, timeout=30)
         self.voltage = self.read_battery_voltage
 
+
 def get_pyboard(type: str) -> Pyboard:
     if type == "pysense":
         return Pysense()

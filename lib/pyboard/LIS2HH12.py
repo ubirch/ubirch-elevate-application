@@ -1,9 +1,9 @@
 import math
-import time
 import struct
-from machine import Pin
-import ubinascii
+import time
 
+import ubinascii
+from machine import Pin
 
 FULL_SCALE_2G = const(0)
 FULL_SCALE_4G = const(2)
@@ -21,7 +21,6 @@ ACC_G_DIV = 1000 * 65536
 
 
 class LIS2HH12:
-
     ACC_I2CADDR = const(30)
 
     PRODUCTID_REG = const(0x0F)
@@ -47,7 +46,7 @@ class LIS2HH12:
     SCALES = {FULL_SCALE_2G: 4000, FULL_SCALE_4G: 8000, FULL_SCALE_8G: 16000}
     ODRS = [0, 10, 50, 100, 200, 400, 800]
 
-    def __init__(self, pysense = None, sda = 'P22', scl = 'P21'):
+    def __init__(self, pysense=None, sda='P22', scl='P21'):
         if pysense is not None:
             self.i2c = pysense.i2c
         else:
@@ -63,7 +62,7 @@ class LIS2HH12:
         self.act_dur = 0
         self.debounced = False
 
-        whoami = self.i2c.readfrom_mem(ACC_I2CADDR , PRODUCTID_REG, 1)
+        whoami = self.i2c.readfrom_mem(ACC_I2CADDR, PRODUCTID_REG, 1)
         if (whoami[0] != 0x41):
             raise ValueError("LIS2HH12 not found")
 
@@ -79,13 +78,13 @@ class LIS2HH12:
         # make a first read
         self.acceleration()
 
-    FIFO_EN = const(0x01 << 7) # CTRL3: FIFO enable. Default value 0. (0: disable; 1: enable)
-    INT1_OVR = const(0x01 << 2) # FIFO overrun signal on INT1
-    FMODE = const(0x01 << 5) # FIFO_CTRL: FIFO mode selection: FIFO mode. Stops collecting data when FIFO is full
+    FIFO_EN = const(0x01 << 7)  # CTRL3: FIFO enable. Default value 0. (0: disable; 1: enable)
+    INT1_OVR = const(0x01 << 2)  # FIFO overrun signal on INT1
+    FMODE = const(0x01 << 5)  # FIFO_CTRL: FIFO mode selection: FIFO mode. Stops collecting data when FIFO is full
 
     def setup_fifo(self):
         # set the register to enable the FIFO
-        self.set_register(CTRL3_REG,(FIFO_EN | INT1_OVR),0,(FIFO_EN | INT1_OVR))
+        self.set_register(CTRL3_REG, (FIFO_EN | INT1_OVR), 0, (FIFO_EN | INT1_OVR))
         # set mode to FIFO mode
         self.set_register(FIFO_CTRL_REG, FMODE, 0, FMODE)
 
@@ -98,28 +97,26 @@ class LIS2HH12:
         # enable the interrupt, which occurs, when fifo is full and set the corresponding handler
         self._user_handler = handler
         self.int_pin = Pin('P13', mode=Pin.IN)
-        self.int_pin.callback(trigger=Pin.IRQ_FALLING , handler=self._int_handler)
-
-
+        self.int_pin.callback(trigger=Pin.IRQ_FALLING, handler=self._int_handler)
 
     def acceleration(self):
-        x = self.i2c.readfrom_mem(ACC_I2CADDR , ACC_X_L_REG, 2)
+        x = self.i2c.readfrom_mem(ACC_I2CADDR, ACC_X_L_REG, 2)
         self.x = struct.unpack('<h', x)
-        y = self.i2c.readfrom_mem(ACC_I2CADDR , ACC_Y_L_REG, 2)
+        y = self.i2c.readfrom_mem(ACC_I2CADDR, ACC_Y_L_REG, 2)
         self.y = struct.unpack('<h', y)
-        z = self.i2c.readfrom_mem(ACC_I2CADDR , ACC_Z_L_REG, 2)
+        z = self.i2c.readfrom_mem(ACC_I2CADDR, ACC_Z_L_REG, 2)
         self.z = struct.unpack('<h', z)
         _mult = self.SCALES[self.full_scale] / ACC_G_DIV
         return (self.x[0] * _mult, self.y[0] * _mult, self.z[0] * _mult)
 
     def roll(self):
-        x,y,z = self.acceleration()
+        x, y, z = self.acceleration()
         rad = math.atan2(-x, z)
         return (180 / math.pi) * rad
 
     def pitch(self):
-        x,y,z = self.acceleration()
-        rad = -math.atan2(y, (math.sqrt(x*x + z*z)))
+        x, y, z = self.acceleration()
+        rad = -math.atan2(y, (math.sqrt(x * x + z * z)))
         return (180 / math.pi) * rad
 
     def get_all_register(self):
@@ -153,7 +150,7 @@ class LIS2HH12:
             raise ValueError(error)
 
         if threshold < self.SCALES[self.full_scale] / 128:
-            error = "threshold %d below resolution %d" % (threshold, self.SCALES[self.full_scale]/128)
+            error = "threshold %d below resolution %d" % (threshold, self.SCALES[self.full_scale] / 128)
             print(error)
             raise ValueError(error)
 

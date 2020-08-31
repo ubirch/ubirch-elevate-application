@@ -1,11 +1,10 @@
-from machine import Timer
-import time
 import gc
-import binascii
+import time
+
+from machine import Timer
 
 
 class L76GNSS:
-
     GPS_I2CADDR = const(0x10)
 
     def __init__(self, pytrack=None, sda='P22', scl='P21', timeout=None):
@@ -36,7 +35,7 @@ class L76GNSS:
             lat_d *= -1
         if gngll_s[4] == 'W':
             lon_d *= -1
-        return(lat_d, lon_d)
+        return (lat_d, lon_d)
 
     def coordinates(self, debug=False):
         lat_d, lon_d, debug_timeout = None, None, False
@@ -75,12 +74,12 @@ class L76GNSS:
                         break
             else:
                 gc.collect()
-                if len(nmea) > 410: # i suppose it can be safely changed to 82, which is longest NMEA frame
-                    nmea = nmea[-5:] # $GNGL without last L
+                if len(nmea) > 410:  # i suppose it can be safely changed to 82, which is longest NMEA frame
+                    nmea = nmea[-5:]  # $GNGL without last L
             time.sleep(0.1)
         self.timeout_status = True
         if debug and debug_timeout:
             print('GPS timed out after %f seconds' % (chrono_timeout))
-            return(None, None)
+            return (None, None)
         else:
-            return(lat_d, lon_d)
+            return (lat_d, lon_d)

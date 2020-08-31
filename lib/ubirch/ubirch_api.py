@@ -1,6 +1,7 @@
+from uuid import UUID
+
 import urequests as requests
 from ubinascii import b2a_base64
-from uuid import UUID
 
 
 def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):

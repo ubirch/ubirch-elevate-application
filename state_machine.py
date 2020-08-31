@@ -4,28 +4,22 @@
 import time
 import machine as pycom_machine
 import ubinascii
+from config import *
+from connection import get_connection, NB_IoT
+from elevate_api import ElevateAPI
+from error_handling import *
+from helpers import *
+from modem import get_imsi
+from network import LTE
 from pyboard import *
-import math
-from datetime import datetime
-
+from realtimeclock import enable_time_sync, wait_for_sync
 from sensor import MovementSensor
 from sensor_config import *
-# import pycom
-from network import WLAN, LTE
-# import network
-# import sys
 from state_machine import *
-from helpers import *
-from error_handling import *
-from config import *
-from modem import get_imsi
-from connection import get_connection, NB_IoT
-from realtimeclock import enable_time_sync, wait_for_sync
-from elevate_api import ElevateAPI
 
 LED_OFF = 0x000000
 
-# standard brightness: 12.5% (low-power)
+# standard brightness: 25% (low-power)
 LED_WHITE = 0x202020  # StateConnecting
 LED_GREEN = 0x002000  # StateMeasuringPaused
 LED_YELLOW = 0x202000  # StateSendingVersionDiagnostics
@@ -72,7 +66,6 @@ class StateMachine(object):
         self.sim = None
         self.key_name = ""
         self.api = None
-        self.elevate_api = ElevateAPI()
 
         self.breath = LedBreath()
 
@@ -124,6 +117,9 @@ class StateMachine(object):
             error_handler.log(e, COLOR_CONFIG_FAIL)
             while True:
                 pycom_machine.idle()
+
+        # create an instance of the elevate API, which needs the configuration
+        self.elevate_api = ElevateAPI(self.cfg)
 
         # configure connection timeouts according to config
         if isinstance(self.connection, NB_IoT):
@@ -179,25 +175,27 @@ class StateMachine(object):
         print("UUID: " + str(self.uuid))
 
     def speed(self):
-        max = 0.0
+        max_speed = 0.0
         i = 0
         while i < 3:
-            if self.sensor.speed_max[i] > max:
-                max = self.sensor.speed_max[i]
-            if math.fabs(self.sensor.speed_min[i]) > max:
-                max = math.fabs(self.sensor.speed_min[i])
+            if self.sensor.speed_max[i] > max_speed:
+                max_speed = self.sensor.speed_max[i]
+            if math.fabs(self.sensor.speed_min[i]) > max_speed:
+                max_speed = math.fabs(self.sensor.speed_min[i])
             i += 1
-        return max
+        return max_speed
 
     def add_state(self, state):
         self.states[state.name] = state
 
     def go_to_state(self, state_name):
         if self.state:
-            print('> > Exiting {} A:{} L:{} I:{}'.format(self.state.name, self.timerActivity, self.timerLastActivity, self.timerInactivity))
+            print('> > Exiting {} A:{} L:{} I:{}'.format(self.state.name, self.timerActivity, self.timerLastActivity,
+                                                         self.timerInactivity))
             self.state.exit(self)
         self.state = self.states[state_name]
-        print('> > Entering {} A:{} L:{} I:{}'.format(self.state.name, self.timerActivity, self.timerLastActivity, self.timerInactivity))
+        print('> > Entering {} A:{} L:{} I:{}'.format(self.state.name, self.timerActivity, self.timerLastActivity,
+                                                      self.timerInactivity))
         self.state.enter(self)
 
     def update(self):
@@ -384,6 +382,7 @@ class StateMeasuringPaused(State):
     this state is entered, when the threshold of activity was reached.
     Here the activity is transmitted to the backends
     """
+
     def __init__(self):
         super().__init__()
         self._measuring_paused_time = 0
@@ -438,7 +437,8 @@ class StateInactive(State):
         State.enter(self, machine)
         self._inactive_time = time.ticks_ms()
         machine.breath.set_color(LED_BLUE)
-        _send_event(machine, "inactiveS", machine.timerInactivity - machine.timerLastActivity, machine.timerActivity, machine.timerInactivity)
+        _send_event(machine, "inactiveS", machine.timerInactivity - machine.timerLastActivity, machine.timerActivity,
+                    machine.timerInactivity)
         machine.intervalForInactivityEventMs *= machine.ExponentialBackoffFactorForInactivityEvent
         print("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
 
@@ -527,9 +527,9 @@ def _send_event(machine, event_name: str, event_value, current_time: float, last
 
     # make the elevate data package
     elevate_data = {
-        'equipmentToken': 'dzsex//2TaU=',
-        'sourceId': 'SjQ5jfFbLBd5vzB9f',
-        'equipmentInfoId': 'BsLsSecZhYzizCYhw',
+        'equipmentToken': machine.cfg['equipmentToken'],
+        'sourceId': machine.cfg['sourceId'],
+        'equipmentInfoId': machine.cfg['equipmentInfoId'],
         'isWorking': True,
         'customData': {
             'deviceId': str(machine.uuid),
@@ -585,7 +585,6 @@ def _send_event(machine, event_name: str, event_value, current_time: float, last
 
     except Exception as e:
         error_handler.log(e, COLOR_BACKEND_FAIL)
-
 
 
 # TODO: do this anyway

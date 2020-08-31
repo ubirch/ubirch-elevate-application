@@ -25,9 +25,10 @@
 """
 
 import time
+from uuid import UUID
+
 import ubinascii as binascii
 from network import LTE
-from uuid import UUID
 
 supported_channels = [0, 1, 2, 3]
 

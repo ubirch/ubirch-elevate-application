@@ -1,12 +1,13 @@
-import machine
 import os
-import pycom
 import sys
 import time
 
+import machine
+import pycom
+
 LED_OFF = 0x000000
 
-#standard brightness: 1% (low-power)
+# standard brightness: 1% (low-power)
 LED_WHITE     = 0x030303
 LED_GREEN     = 0x000600
 LED_YELLOW    = 0x060600
@@ -17,7 +18,7 @@ LED_BLUE      = 0x000006
 LED_TURQUOISE = 0x010605
 LED_PINK      = 0x060002
 
-#full brightness (for errors etc)
+# full brightness (for errors etc)
 LED_WHITE_BRIGHT     = 0xffffff
 LED_GREEN_BRIGHT     = 0x00ff00
 LED_YELLOW_BRIGHT    = 0xffff00
@@ -27,6 +28,7 @@ LED_PURPLE_BRIGHT    = 0x800080
 LED_BLUE_BRIGHT      = 0x0000ff
 LED_TURQUOISE_BRIGHT = 0x40E0D0
 LED_PINK_BRIGHT      = 0xFF1493
+
 
 def set_led(led_color):
     pycom.heartbeat(False)  # disable blue heartbeat blink

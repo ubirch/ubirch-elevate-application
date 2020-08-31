@@ -1,8 +1,10 @@
 import time
+
 from machine import I2C
 
+
 class LTR329ALS01:
-    ALS_I2CADDR = const(0x29) # The device's I2C address
+    ALS_I2CADDR = const(0x29)  # The device's I2C address
 
     ALS_CONTR_REG = const(0x80)
     ALS_MEAS_RATE_REG = const(0x85)
@@ -35,7 +37,8 @@ class LTR329ALS01:
     ALS_RATE_1000 = const(0x04)
     ALS_RATE_2000 = const(0x05)
 
-    def __init__(self, pysense = None, sda = 'P22', scl = 'P21', gain = ALS_GAIN_1X, integration = ALS_INT_100, rate = ALS_RATE_500):
+    def __init__(self, pysense=None, sda='P22', scl='P21', gain=ALS_GAIN_1X, integration=ALS_INT_100,
+                 rate=ALS_RATE_500):
         if pysense is not None:
             self.i2c = pysense.i2c
         else:
@@ -59,12 +62,12 @@ class LTR329ALS01:
         return ((high & 0xFF) << 8) + (low & 0xFF)
 
     def light(self):
-        ch1low = self.i2c.readfrom_mem(ALS_I2CADDR , ALS_DATA_CH1_LOW, 1)
-        ch1high = self.i2c.readfrom_mem(ALS_I2CADDR , ALS_DATA_CH1_HIGH, 1)
+        ch1low = self.i2c.readfrom_mem(ALS_I2CADDR, ALS_DATA_CH1_LOW, 1)
+        ch1high = self.i2c.readfrom_mem(ALS_I2CADDR, ALS_DATA_CH1_HIGH, 1)
         data1 = int(self._getWord(ch1high[0], ch1low[0]))
 
-        ch0low = self.i2c.readfrom_mem(ALS_I2CADDR , ALS_DATA_CH0_LOW, 1)
-        ch0high = self.i2c.readfrom_mem(ALS_I2CADDR , ALS_DATA_CH0_HIGH, 1)
+        ch0low = self.i2c.readfrom_mem(ALS_I2CADDR, ALS_DATA_CH0_LOW, 1)
+        ch0high = self.i2c.readfrom_mem(ALS_I2CADDR, ALS_DATA_CH0_HIGH, 1)
         data0 = int(self._getWord(ch0high[0], ch0low[0]))
 
         return (data0, data1)

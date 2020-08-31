@@ -1,15 +1,14 @@
-import machine
+import math
 import os
 import time
-import math
-import pycom
+from uuid import UUID
 
+import machine
+import pycom
+import ubirch
 from connection import Connection
 from modem import reset_modem
 from network import LTE
-from uuid import UUID
-
-import ubirch
 
 
 def mount_sd():
@@ -160,7 +159,7 @@ def serialize_json(msg: dict) -> bytes:
         elif value_type is int:
             serialized += "{:d}".format(value)
         elif isinstance(value, float):
-            serialized += "{:.4f}".format(value) # modified for elevate
+            serialized += "{:.4f}".format(value)  # modified for elevate
         elif value_type is dict:
             serialized += serialize_json(value).decode()
         elif value_type is bool:
@@ -202,6 +201,7 @@ class LedBreath(object):
     according to the time ticks.
     If the breathing does not work for a while, it means the controller is not running
     """
+
     def __init__(self):
         self.period = 5000.0
         self.color = 0xFF00FF

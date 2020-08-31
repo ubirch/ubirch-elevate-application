@@ -1,11 +1,14 @@
 import time
+
 from machine import I2C
 
 ALTITUDE = const(0)
 PRESSURE = const(1)
 
+
 class MPL3115A2exception(Exception):
     pass
+
 
 class MPL3115A2:
     MPL3115_I2CADDR = const(0x60)
@@ -43,7 +46,7 @@ class MPL3115A2:
     MPL3115_OFFSET_T = const(0x2c)
     MPL3115_OFFSET_H = const(0x2d)
 
-    def __init__(self, pysense = None, sda = 'P22', scl = 'P21', mode = PRESSURE):
+    def __init__(self, pysense=None, sda='P22', scl='P21', mode=PRESSURE):
         if pysense is not None:
             self.i2c = pysense.i2c
         else:
@@ -53,13 +56,15 @@ class MPL3115A2:
         self.mode = mode
 
         if self.mode is PRESSURE:
-            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_CTRL_REG1, bytes([0x38])) # barometer mode, not raw, oversampling 128, minimum time 512 ms
-            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_PT_DATA_CFG, bytes([0x07])) # no events detected
-            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_CTRL_REG1, bytes([0x39])) # active
+            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_CTRL_REG1,
+                                 bytes([0x38]))  # barometer mode, not raw, oversampling 128, minimum time 512 ms
+            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_PT_DATA_CFG, bytes([0x07]))  # no events detected
+            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_CTRL_REG1, bytes([0x39]))  # active
         elif self.mode is ALTITUDE:
-            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_CTRL_REG1, bytes([0xB8])) # altitude mode, not raw, oversampling 128, minimum time 512 ms
-            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_PT_DATA_CFG, bytes([0x07])) # no events detected
-            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_CTRL_REG1, bytes([0xB9])) # active
+            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_CTRL_REG1,
+                                 bytes([0xB8]))  # altitude mode, not raw, oversampling 128, minimum time 512 ms
+            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_PT_DATA_CFG, bytes([0x07]))  # no events detected
+            self.i2c.writeto_mem(MPL3115_I2CADDR, MPL3115_CTRL_REG1, bytes([0xB9]))  # active
         else:
             raise MPL3115A2exception("Invalid Mode MPL3115A2")
 
@@ -72,10 +77,10 @@ class MPL3115A2:
         while True:
             self.i2c.readfrom_mem_into(MPL3115_I2CADDR, MPL3115_STATUS, self.STA_reg)
 
-            if(self.STA_reg[0] == 0):
+            if (self.STA_reg[0] == 0):
                 time.sleep(0.01)
                 pass
-            elif(self.STA_reg[0] & 0x04) == 4:
+            elif (self.STA_reg[0] & 0x04) == 4:
                 return True
             else:
                 return False
@@ -84,19 +89,20 @@ class MPL3115A2:
         if self.mode == ALTITUDE:
             raise MPL3115A2exception("Incorrect Measurement Mode MPL3115A2")
 
-        OUT_P_MSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_MSB,1)
-        OUT_P_CSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_CSB,1)
-        OUT_P_LSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_LSB,1)
+        OUT_P_MSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_MSB, 1)
+        OUT_P_CSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_CSB, 1)
+        OUT_P_LSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_LSB, 1)
 
-        return float((OUT_P_MSB[0] << 10) + (OUT_P_CSB[0] << 2) + ((OUT_P_LSB[0] >> 6) & 0x03) + ((OUT_P_LSB[0] >> 4) & 0x03) / 4.0)
+        return float((OUT_P_MSB[0] << 10) + (OUT_P_CSB[0] << 2) + ((OUT_P_LSB[0] >> 6) & 0x03) + (
+                    (OUT_P_LSB[0] >> 4) & 0x03) / 4.0)
 
     def altitude(self):
         if self.mode == PRESSURE:
             raise MPL3115A2exception("Incorrect Measurement Mode MPL3115A2")
 
-        OUT_P_MSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_MSB,1)
-        OUT_P_CSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_CSB,1)
-        OUT_P_LSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_LSB,1)
+        OUT_P_MSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_MSB, 1)
+        OUT_P_CSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_CSB, 1)
+        OUT_P_LSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_PRESSURE_DATA_LSB, 1)
 
         alt_int = (OUT_P_MSB[0] << 8) + (OUT_P_CSB[0])
         alt_frac = ((OUT_P_LSB[0] >> 4) & 0x0F)
@@ -107,8 +113,8 @@ class MPL3115A2:
         return float(alt_int + alt_frac / 16.0)
 
     def temperature(self):
-        OUT_T_MSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_TEMP_DATA_MSB,1)
-        OUT_T_LSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_TEMP_DATA_LSB,1)
+        OUT_T_MSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_TEMP_DATA_MSB, 1)
+        OUT_T_LSB = self.i2c.readfrom_mem(MPL3115_I2CADDR, MPL3115_TEMP_DATA_LSB, 1)
 
         temp_int = OUT_T_MSB[0]
         temp_frac = OUT_T_LSB[0]

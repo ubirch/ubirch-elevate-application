@@ -1,8 +1,10 @@
-import time
-from machine import I2C
 import math
+import time
+
+from machine import I2C
 
 __version__ = '0.0.2'
+
 
 class SI7006A20:
     """ class for handling the temperature sensor SI7006-A20
@@ -15,7 +17,7 @@ class SI7006A20:
     TEMP_NOHOLDMASTER = const(0xF3)
     HUMD_NOHOLDMASTER = const(0xF5)
 
-    def __init__(self, pysense = None, sda = 'P22', scl = 'P21'):
+    def __init__(self, pysense=None, sda='P22', scl='P21'):
         if pysense is not None:
             self.i2c = pysense.i2c
         else:
@@ -29,7 +31,7 @@ class SI7006A20:
         self.i2c.writeto(SI7006A20_I2C_ADDR, bytearray([0xF3]))
         time.sleep(0.5)
         data = self.i2c.readfrom(SI7006A20_I2C_ADDR, 3)
-        #print("CRC Raw temp data: " + hex(data[0]*65536 + data[1]*256 + data[2]))
+        # print("CRC Raw temp data: " + hex(data[0]*65536 + data[1]*256 + data[2]))
         data = self._getWord(data[0], data[1])
         temp = ((175.72 * data) / 65536.0) - 46.85
         return temp
@@ -70,7 +72,7 @@ class SI7006A20:
 
     def read_firmware(self):
         """ reading firmware version """
-        self.i2c.writeto(SI7006A20_I2C_ADDR, bytearray([0x84])+ bytearray([0xB8]))
+        self.i2c.writeto(SI7006A20_I2C_ADDR, bytearray([0x84]) + bytearray([0xB8]))
         time.sleep(0.5)
         fw = self.i2c.readfrom(SI7006A20_I2C_ADDR, 1)
         return fw[0]
@@ -84,7 +86,7 @@ class SI7006A20:
 
     def write_reg(self, reg_addr, value):
         """ writing a register """
-        self.i2c.writeto(SI7006A20_I2C_ADDR, bytearray([reg_addr])+bytearray([value]))
+        self.i2c.writeto(SI7006A20_I2C_ADDR, bytearray([reg_addr]) + bytearray([value]))
         time.sleep(0.1)
 
     def dew_point(self):
@@ -96,7 +98,7 @@ class SI7006A20:
         dew_p = 243.12 * h / (17.62 - h)
         return dew_p
 
-    def humid_ambient(self, t_ambient, dew_p = None):
+    def humid_ambient(self, t_ambient, dew_p=None):
         """ returns the relative humidity compensated for the current Ambient temperature
             for ex: T-Ambient is 24.4 degC, but sensor indicates Temperature = 31.65 degC and Humidity = 47.3%
                     -> then the actual Relative Humidity is 72.2%

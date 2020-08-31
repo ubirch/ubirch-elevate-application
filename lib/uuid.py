@@ -19,4 +19,3 @@ class UUID:
 
     def __repr__(self):
         return "<UUID: %s>" % str(self)
-

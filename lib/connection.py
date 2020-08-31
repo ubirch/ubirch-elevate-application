@@ -1,6 +1,7 @@
-import machine
 import sys
 import time
+
+import machine
 
 
 class Connection:
@@ -17,7 +18,7 @@ class Connection:
 
 class NB_IoT(Connection):
 
-    def __init__(self, lte: LTE, apn: str, band: int or None, attachtimeout: int, connecttimeout:int):
+    def __init__(self, lte: LTE, apn: str, band: int or None, attachtimeout: int, connecttimeout: int):
         self.lte = lte
         self.apn = apn
         self.band = band
@@ -31,7 +32,7 @@ class NB_IoT(Connection):
         sys.stdout.write("\tattaching to the NB-IoT network")
         # since we disable unsolicited CEREG messages in modem.py, as they interfere with AT communication with the SIM via CSIM commands,
         # we are required to use an attach method that does not require cereg messages, for pycom that is legacyattach=false
-        self.lte.attach(band=self.band, apn=self.apn,legacyattach=False)
+        self.lte.attach(band=self.band, apn=self.apn, legacyattach=False)
         i = 0
         while not self.lte.isattached() and i < self.attachtimeout:
             i += 1
@@ -68,10 +69,10 @@ class NB_IoT(Connection):
         if self.lte.isconnected():
             self.lte.disconnect()
 
-    def setattachtimeout(self, attachtimeout:int):
-        self.attachtimeout = attachtimeout        
+    def setattachtimeout(self, attachtimeout: int):
+        self.attachtimeout = attachtimeout
 
-    def setconnecttimeout(self, connecttimeout:int):
+    def setconnecttimeout(self, connecttimeout: int):
         self.connecttimeout = connecttimeout
 
 
@@ -127,7 +128,8 @@ def get_connection(lte: LTE, cfg: dict) -> Connection:
         connectionInstance = WIFI(cfg['networks'])
         return connectionInstance
     elif cfg['connection'] == "nbiot":
-        connectionInstance = NB_IoT(lte, cfg['apn'], cfg['band'],cfg['nbiot_attach_timeout'],cfg['nbiot_connect_timeout'])
+        connectionInstance = NB_IoT(lte, cfg['apn'], cfg['band'], cfg['nbiot_attach_timeout'],
+                                    cfg['nbiot_connect_timeout'])
         return connectionInstance
     else:
         raise Exception(

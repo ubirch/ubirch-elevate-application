@@ -1,4 +1,5 @@
 import os
+
 import ujson as json
 
 NIOMON_SERVICE = "https://niomon.{}.ubirch.com"

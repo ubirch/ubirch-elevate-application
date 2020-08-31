@@ -1,8 +1,9 @@
 """
 TODO
 """
-import urequests as requests
 from uuid import UUID
+
+import urequests as requests
 
 
 def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):
@@ -19,15 +20,15 @@ def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):
 
 class ElevateAPI:
     """elevate API accessor methods."""
-    def __init__(self):
-        # , cfg: dict)
+
+    def __init__(self, cfg: dict):
         self.debug = True
         # cfg['debug']
-        self.data_url = "https://www.accessibility.cloud/equipment-status-reports.json"
+        self.data_url = cfg['elevate_data_url']
         self._elevate_headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'X-App-Token': ''
+            'X-App-Token': cfg['elevate_api_token']
         }
 
     def send_data(self, uuid: UUID, message: bytes) -> (int, bytes):
