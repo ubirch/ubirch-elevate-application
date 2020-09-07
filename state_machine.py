@@ -329,8 +329,8 @@ class StateSendingCellularDiagnostics(State):
 
     def enter(self, machine):
         State.enter(self, machine)
-        # TODO 	Diagnostics::sendCellularDiagnostics();
-        # 		Diagnostics::sendNetworkRegistrationStatus();
+        # TODO 	Diagnostics::sendCellularDiagnostics();   rssi -> AT+CSQ
+        # 		Diagnostics::sendNetworkRegistrationStatus();   AT+COPS?
         self._cellular_wait_time = time.ticks_ms()
         machine.breath.set_color(LED_TURQUOISE)
 

@@ -3,7 +3,7 @@ TODO
 """
 from uuid import UUID
 
-import urequests as requests
+import lib.urequests as requests
 
 
 def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):
