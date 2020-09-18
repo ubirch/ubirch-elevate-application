@@ -206,6 +206,10 @@ class LedBreath(object):
         self.period = 5000.0
         self.color = 0xFF00FF
         self.brightness = 0xFF
+        # storage for backup values, used for blinking method
+        self.period_back = self.period
+        self.color_back = self.color
+        self.brightness_back = self.brightness
 
     def update(self):
         """
@@ -243,4 +247,39 @@ class LedBreath(object):
         :param brightness: is the brightness at maximum of the breathing interval
         """
         self.brightness = brightness & 0xFF
+        self.update()
+
+    def set_period(self, period_ms):
+        """
+        set_period is used to set the period [ms] of the RGB LED light breathing.
+        The default value is 5000 ms
+        :param period_ms: is the period [ms] of the breathing interval
+        """
+        self.period = period_ms
+        self.update()
+
+    def set_blinking(self):
+        """
+        set_blinking is used to set the LED breathing to a fast a bright mode.
+        This Method shall be used to make the sensor visible and recognizable.
+        """
+        # first backup the old values
+        self.period_back = self.period
+        self.color_back = self.color
+        self.brightness_back = self.brightness
+        # now set a bright red color with 1000 ms period
+        self.period = 1000
+        self.color = 0xFF8010
+        self.brightness = 0xFF
+        self.update()
+
+    def reset_blinking(self):
+        """
+        reset_blinking is used to set the LED breathing to a fast a bright mode.
+        This Method shall be used to reset the .
+        """
+        # get back the backuped values
+        self.period = self.period_back
+        self.color = self.color_back
+        self.brightness = self.brightness_back
         self.update()

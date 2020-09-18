@@ -3,6 +3,8 @@ TODO
 """
 from uuid import UUID
 
+import ujson as json
+
 import lib.urequests as requests
 
 
@@ -14,7 +16,19 @@ def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):
     :param headers: the headers for the request
     :return: the backend response status code, the backend response content (body)
     """
-    r = requests.post(url=url, data=data, headers=headers)
+    r = requests.patch(url=url, data=data, headers=headers)
+    return r.status_code, r.content
+
+
+def _get_request(url: str, headers: dict) -> (int, bytes):
+    """
+    Send a http post request to the backend.
+    :param url: the backend service URL
+    :param data: the data to send to the backend
+    :param headers: the headers for the request
+    :return: the backend response status code, the backend response content (body)
+    """
+    r = requests.get(url=url, headers=headers)
     return r.status_code, r.content
 
 
@@ -28,7 +42,8 @@ class ElevateAPI:
         self._elevate_headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'X-App-Token': cfg['elevateApiToken']
+            'X-App-Token': cfg['elevateAppToken'],
+            'X-Device-Token': cfg['elevateDeviceToken']
         }
 
     def send_data(self, uuid: UUID, message: bytes) -> (int, bytes):
@@ -45,6 +60,59 @@ class ElevateAPI:
         return _send_request(url=self.data_url,
                              data=message,
                              headers=self._elevate_headers)
+
+    def get_state(self) -> (int, str, str):
+        """
+        TODO
+        :return:
+        """
+        log_level = ""
+        state = ""
+        if self.debug:
+            print("** getting the current state from " + self.data_url)
+
+        r, c = _get_request(url=self.data_url, headers=self._elevate_headers)
+        if self.debug:
+            print("**  r={0} c={1}".format(r, c))
+        if r == 200:
+            state_info = json.loads(c)
+            print("dump", json.dumps(state_info))
+            if 'properties' in state_info:
+                props = state_info['properties']
+                print(props)
+                if 'firmwareLogLevel' in props:
+                    log_level = props['firmwareLogLevel']
+                    print("LOGGING AT", log_level)
+                if 'firmwareState' in props:
+                    state = props['firmwareState']
+                    print("STATE AT", state)
+        return r, log_level, state
+
+    """
+    {
+        "_id":"KBkgm6qDZE2i94c2Q",
+        "properties":{
+            "equipmentInfoId":"BsLsSecZhYzizCYhw",
+            "ownerId":"fiN4c4HNdmSBT2JzQ",
+            "productId":"8XmwxWa6PwvpT9jEx",
+            "createdAt":{
+                "$date":1598644767333
+            },
+            "name":"Testsensor 2",
+            "firmwareLogLevel":"warning",
+            "firmwareState":"blinking",
+            "variables":{
+                "isWorking":{
+                    "value":true,
+                    "updatedAt":{
+                        "$date":1600115661477
+                    }
+                }
+            }
+        },
+        "related":{}
+    }
+    """
 
     def generate_data_package(self, x, y, z):
         """

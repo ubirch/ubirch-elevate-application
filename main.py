@@ -1,7 +1,8 @@
 import utime as time
 
+import logging
+
 from pyboard import *
-import pycom
 import _thread
 from network import WLAN
 from state_machine import *
@@ -23,6 +24,33 @@ _thread.stack_size(16384)
 
 wlan = WLAN(mode=WLAN.STA)
 
+# create a logging for the system and store the information in a file
+FMT = "{\'t\':\'%(asctime)s\'," \
+      "\'l\':\'%(levelname)s\'," \
+      "\'m\': \'%(message)s\'}"
+#       "\'n\':\'%(name)s\'," \
+fileHandler = logging.FileHandler(filename="/flash/testlog2.txt")
+fileHandler.setFormatter(logging.Formatter(fmt=FMT))
+streamHandler = logging.StreamHandler(sys.stdout)
+logging.basicConfig(level=logging.DEBUG,
+                    format=FMT)
+log = logging.getLogger()
+# log.addHandler(streamHandler)
+log.addHandler(fileHandler)
+# log.setLevel(logging.INFO)
+
+log.debug("Test message: %d(%s)", 100, "foobar")
+log.info("Test message2: %d(%s)", 100, "foobar")
+log.warning("Test message3: %d(%s)", 100, "foobar")
+log.error("Test message4")
+log.critical("Test message5")
+#logging.info("Test message6")
+
+try:
+    1/0
+except:
+    log.exception("Some trouble (%s)", "expected")
+
 
 class Main:
     def __init__(self) -> None:
@@ -38,6 +66,7 @@ class Main:
         self.root_controller.add_state(StateWaitingForOvershot())
         self.root_controller.add_state(StateMeasuringPaused())
         self.root_controller.add_state(StateInactive())
+        self.root_controller.add_state(StateBlinking())
         self.root_controller.add_state(StateError())
         # start with the connecting state
         self.root_controller.go_to_state('connecting')
