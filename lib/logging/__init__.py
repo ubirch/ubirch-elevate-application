@@ -186,6 +186,8 @@ class Formatter:
 
     def format(self, record):
         # The message attribute of the record is computed using msg % args.
+        print("MSG {}".format(record.msg))
+        print("ARGS {}".format(record.args))
         record.message = record.msg % record.args
 
         # If the formatting string contains '(asctime)', formatTime() is called to

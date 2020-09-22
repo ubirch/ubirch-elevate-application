@@ -10,7 +10,7 @@ import lib.urequests as requests
 
 def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):
     """
-    Send a http post request to the backend.
+    Send a http patch request to the backend.
     :param url: the backend service URL
     :param data: the data to send to the backend
     :param headers: the headers for the request
@@ -22,9 +22,8 @@ def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):
 
 def _get_request(url: str, headers: dict) -> (int, bytes):
     """
-    Send a http post request to the backend.
+    Send a http get request to the backend.
     :param url: the backend service URL
-    :param data: the data to send to the backend
     :param headers: the headers for the request
     :return: the backend response status code, the backend response content (body)
     """
@@ -38,7 +37,7 @@ class ElevateAPI:
     def __init__(self, cfg: dict):
         self.debug = True
         # cfg['debug']
-        self.data_url = cfg['elevateDataUrl']
+        self.data_url = cfg['elevateDataUrl'] + cfg['elevateDeviceId']
         self._elevate_headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
@@ -51,7 +50,7 @@ class ElevateAPI:
         TODO
         Send a JSON data message to the ubirch data service. Requires encoding before sending.
         :param uuid: the sender's UUID
-        :param auth: the ubirch backend auth token (password)
+        :param auth: the ubirch backend auth token (ubirchAuthToken)
         :param message: the encoded JSON message to send to the data service
         :return: the server response status code, the server response content (body)
         """
@@ -61,7 +60,7 @@ class ElevateAPI:
                              data=message,
                              headers=self._elevate_headers)
 
-    def get_state(self) -> (int, str, str):
+    def get_state(self, uuid: UUID, message: bytes) -> (int, str, str):
         """
         TODO
         :return:
@@ -73,13 +72,13 @@ class ElevateAPI:
 
         r, c = _get_request(url=self.data_url, headers=self._elevate_headers)
         if self.debug:
-            print("**  r={0} c={1}".format(r, c))
+            print("**  r={} c={}".format(r, c))
         if r == 200:
             state_info = json.loads(c)
-            print("dump", json.dumps(state_info))
+            # print("dump", json.dumps(state_info))
             if 'properties' in state_info:
                 props = state_info['properties']
-                print(props)
+                # print(props)
                 if 'firmwareLogLevel' in props:
                     log_level = props['firmwareLogLevel']
                     print("LOGGING AT", log_level)

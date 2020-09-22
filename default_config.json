@@ -9,7 +9,7 @@
   "watchdog_timeout": 300,
   "watchdog_extended_timeout": 960,
   "board": "pysense",
-  "password": null,
+  "ubirchAuthToken": null,
   "env": "prod",
   "CSR_country": "DE",
   "CSR_organization": "ubirch GmbH",

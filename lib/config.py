@@ -27,7 +27,7 @@ def load_config(sd_card_mounted: bool = False) -> dict:
           "<WIFI SSID>": "<WIFI PASSWORD>"
         },
         "board": "<'pysense' or 'pytrack'>",
-        "password": "<auth token for the ubirch backend>",
+        "ubirchAuthToken": "<auth token for the ubirch backend>",
         "keyService": "<URL of key registration service>",
         "niomon": "<URL of authentication service>",
         "data": "<URL of data service>",
@@ -62,7 +62,7 @@ def load_config(sd_card_mounted: bool = False) -> dict:
             cfg.update(api_config)
 
     # ensure that the ubirch backend auth token is set
-    if cfg['password'] is None:
+    if cfg['ubirchAuthToken'] is None:
         raise Exception("missing auth token")
 
     # set default values for unset service URLs

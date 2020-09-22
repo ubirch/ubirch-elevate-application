@@ -14,9 +14,5 @@ you need to provide a `config.json` file, which includes:
 ```json
 {
   "elevateDataUrl": "https://www.accessibility.cloud/equipment-status-reports.json",
-  "elevateApiToken": "enter_token_here",
-  "equipmentToken": "enter_token_here",
-  "sourceId": "enter_id_here",
-  "equipmentInfoId": "enter_info_here"
 }
 ```

@@ -35,21 +35,15 @@ streamHandler = logging.StreamHandler(sys.stdout)
 logging.basicConfig(level=logging.DEBUG,
                     format=FMT)
 log = logging.getLogger()
-# log.addHandler(streamHandler)
 log.addHandler(fileHandler)
-# log.setLevel(logging.INFO)
 
-log.debug("Test message: %d(%s)", 100, "foobar")
-log.info("Test message2: %d(%s)", 100, "foobar")
-log.warning("Test message3: %d(%s)", 100, "foobar")
-log.error("Test message4")
-log.critical("Test message5")
-#logging.info("Test message6")
-
+status_code = 200
+cntnt = "we love tno code"
+content = "submitting CSR failed: ({}) {}".format(status_code, str(cntnt))
 try:
     1/0
 except:
-    log.exception("Some trouble (%s)", "expected")
+    log.exception("backend (UPP) returned error: ({}) {}".format(status_code, str(content)))
 
 
 class Main:

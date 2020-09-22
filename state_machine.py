@@ -70,13 +70,14 @@ class StateMachine(object):
         self.sim = None
         self.key_name = ""
         self.api = None
+        self.debug = False
 
         self.breath = LedBreath()
 
         self.latError = None
         # set all necessary time values
-        self.IntervalForDetectingInactivityMs = 10000
-        self.OvershotDetectionPauseIntervalMs = 10000
+        self.IntervalForDetectingInactivityMs = 60000
+        self.OvershotDetectionPauseIntervalMs = 60000
         self.FirstIntervalForInactivityEventMs = 60000
         self.ExponentialBackoffFactorForInactivityEvent = 2
         self.intervalForInactivityEventMs = self.FirstIntervalForInactivityEventMs
@@ -86,7 +87,7 @@ class StateMachine(object):
         self.timerLastActivity = 0.0
         self.timerInactivity = 0.0
 
-        log.info("\n\n\n\n\n[Core] Initializing magic... ✨ ")
+        log.info("[Core] Initializing magic... ✨ ")
         log.info("[Core] Hello, I am %s",  ubinascii.hexlify(pycom_machine.unique_id()))
 
         try:
@@ -111,8 +112,8 @@ class StateMachine(object):
         try:
             self.cfg = load_config(sd_card_mounted=SD_CARD_MOUNTED)
 
-            lvl_debug = self.cfg['debug']  # set debug level
-            if lvl_debug: print("\t" + repr(self.cfg))
+            self.debug = self.cfg['debug']  # set debug level
+            if self.debug: print("\t" + repr(self.cfg))
 
             self.connection = get_connection(self.lte, self.cfg)  # initialize connection object depending on config
             self.api = ubirch.API(self.cfg)  # set up API for backend communication
@@ -159,7 +160,7 @@ class StateMachine(object):
         # initialise ubirch SIM protocol
         log.info("++ initializing ubirch SIM protocol")
         try:
-            self.sim = ubirch.SimProtocol(lte=self.lte, at_debug=lvl_debug)
+            self.sim = ubirch.SimProtocol(lte=self.lte, at_debug=self.debug)
         except Exception as e:
             log.exception(e)
             pycom_machine.reset()
@@ -254,10 +255,6 @@ class State(object):
 
     def update(self, machine):
         machine.breath.update()
-        # if switch.fell:
-        #     machine.paused_state = machine.state.name
-        #     machine.pause()
-        #     return False
         return True
 
 
@@ -346,7 +343,6 @@ class StateSendingVersionDiagnostics(State):
         # TODO Diagnostics::sendVersionDiagnostics()
         self._version_wait_time = time.ticks_ms()
         machine.breath.set_color(LED_YELLOW)
-        machine.elevate_api.get_state()
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -480,8 +476,9 @@ class StateInactive(State):
         State.enter(self, machine)
         self._inactive_time = time.ticks_ms()
         machine.breath.set_color(LED_BLUE)
-        _send_event(machine, "inactiveS", machine.timerInactivity - machine.timerLastActivity, machine.timerActivity,
-                    machine.timerInactivity)
+
+        level, state = _get_state(machine)
+        print("LEVEL: ({}) STATE:({})".format(level, state))
         machine.intervalForInactivityEventMs *= machine.ExponentialBackoffFactorForInactivityEvent
         log.debug("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
 
@@ -564,67 +561,48 @@ class StateError(State):
 # Send the data away
 def _send_event(machine, event_name: str, event_value, current_time: float, last_time: float):
     print("SENDING")
-    # current_time = time.time()
-    # pack the message
-    event_data = {
-        'msg_type': 1,
-        'uuid': str(machine.uuid),
-        'timestamp': int(current_time),
-        'data': {
-            'x_max': machine.sensor.speed_max[0],
-            'y_max': machine.sensor.speed_max[1],
-            'z_max': machine.sensor.speed_max[2],
-            'x_min': machine.sensor.speed_min[0],
-            'y_min': machine.sensor.speed_min[1],
-            'z_min': machine.sensor.speed_min[2]
-        }
-    }
-
-    serialized = serialize_json(event_data)
-    print("SERIALIZED:", serialized)
-    # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
-    try:
-        print("++ creating UPP")
-        upp = machine.sim.message_chained(machine.key_name, serialized, hash_before_sign=True)
-        print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
-    except Exception as e:
-        error_handler.log(e, COLOR_SIM_FAIL, reset=True)  # todo check the reset
-
     # get the time
     t = time.gmtime(current_time)  # (1970, 1, 1, 0, 0, 15, 3, 1)
     iso8601_fmt = "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z"  # "2020-08-24T14:23:50Z"
     iso8601_time = iso8601_fmt.format(t[0], t[1], t[2], t[3], t[4], t[5])
-
     # make the elevate data package
     elevate_data = {
         'properties.variables': {
             'isWorking': {
                 'value': True,
                 'lastActivityOn': iso8601_time
-            }
+            },
         }  # ,
         # lastActivityOn
         # lastLogContent
-
-        # 'equipmentToken': machine.cfg['equipmentToken'],
-        # 'sourceId': machine.cfg['sourceId'],
-        # 'equipmentInfoId': machine.cfg['equipmentInfoId'],
-        # 'isWorking': True,
-        # 'customData': {
-        #     'deviceId': str(machine.uuid),
-        #     'event': {
-        #         'name': event_name,
-        #         'value': event_value,
-        #         'productUserId': 'testSensor1',
-        #         'productVersion': '0.9'
-        #     }
-        # },
-        # 'timeSinceLastActivityInSeconds': int(current_time - last_time),
-        # 'isoDate': iso8601_time
+        # firmwareVersion(String)
+        # hardwareVersion(String)
+        # cellSignalPower(Number)
+        # cellSignalQuality(Number)
+        # cellOperator(String)
+        # cellTechnology(String)
+        # cellGlobalIdentity(String)
+        # cellDeviceIdentity(String)
+        # ping(Number)
+        # totalAvailableMemory(Number)
+        # usedMemory(Number)
+        # batteryCharge(Number)
+        # stateOfCharge(String)
     }
-    # elevate_serialized = serialize_json(elevate_data) # todo, the serialization is not working yet
+    elevate_serialized = serialize_json(elevate_data) # todo, the serialization is not working yet
     log.debug("ELEVATE RAW: {}".format(json.dumps(elevate_data)))
-    # print("ELEVATE SER:", elevate_serialized)
+    print("ELEVATE SER:", elevate_serialized)
+
+    # serialized = serialize_json(event_data)
+    # print("SERIALIZED:", serialized)
+    # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
+    try:
+        print("++ creating UPP")
+        upp = machine.sim.message_chained(machine.key_name, elevate_serialized, hash_before_sign=True)
+        print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
+    except Exception as e:
+        log.exception(e)
+        pycom_machine.reset()
 
     machine.connection.connect()
 
@@ -639,38 +617,50 @@ def _send_event(machine, event_name: str, event_value, current_time: float, last
         except Exception as e:
             log.error(e)
             pycom_machine.reset()
-            # error_handler.log(e, COLOR_MODEM_FAIL, reset=True)  # todo check the reset
-        # send data message to data service, with reconnects/modem resets if necessary
-        log.debug("++ sending data")
-        try:
-            status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                     machine.api.send_data, machine.uuid, serialized)
-        except Exception as e:
-            log.error(e)
-            pycom_machine.reset()
-            # error_handler.log(e, COLOR_MODEM_FAIL, reset=True)  # todo check the reset
-
-        # communication worked in general, now check server response
-        if not 200 <= status_code < 300:
-            raise Exception("backend (data) returned error: ({}) {}".format(status_code, str(content)))
 
         # send UPP to the ubirch authentication service to be anchored to the blockchain
         print("++ sending UPP")
         try:
             status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                      machine.api.send_upp, machine.uuid, upp)
+            log.debug("NIOMON:({}) {}".format(status_code, str(content)))
         except Exception as e:
             log.error(e)
             pycom_machine.reset()
-            # error_handler.log(e, COLOR_MODEM_FAIL, reset=True)  # todo check the reset
 
         # communication worked in general, now check server response
         if not 200 <= status_code < 300:
-            raise Exception("backend (UPP) returned error: ({}) {}".format(status_code, str(content)))
-
+            raise Exception("backend (UPP) returned error: ({}) {}".format(status_code,
+                                                                           ubinascii.hexlify(content).decode()))
     except Exception as e:
-        log.error(e)
-        # error_handler.log(e, COLOR_BACKEND_FAIL)
+        # TODO this does not work yet => log.error(e)
+        print("{}".format(e))
+
+
+def _get_state(machine):
+    print("GET THE STATE")
+    level = ""
+    state = ""
+    machine.connection.connect()
+
+    # send data message to data service, with reconnects/modem resets if necessary
+    try:
+        log.debug("++ getting elevate state")
+        try:
+            status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
+                                                     machine.elevate_api.get_state, machine.uuid, '')
+            log.debug("RESPONSE: {}{}".format(level, state))
+        except Exception as e:
+            log.error(e)
+            pycom_machine.reset()
+            # communication worked in general, now check server response
+            if not 200 <= status_code < 300:
+                raise Exception("backend (ELEVATE) returned error: ({})".format(status_code))
+    except Exception as e:
+        # TODO this does not work yet => log.error(e)
+        print("{}".format(e))
+
+    return level, state
 
 
 # TODO: do this anyway

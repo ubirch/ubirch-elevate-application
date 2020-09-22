@@ -27,7 +27,7 @@ class API:
         self.auth_service_url = cfg['niomon']
         self.bootstrap_service_url = cfg['bootstrap']
         self._ubirch_headers = {
-            'X-Ubirch-Credential': b2a_base64(cfg['password']).decode().rstrip('\n'),
+            'X-Ubirch-Credential': b2a_base64(cfg['ubirchAuthToken']).decode().rstrip('\n'),
             'X-Ubirch-Auth-Type': 'ubirch'
         }
 
@@ -35,7 +35,7 @@ class API:
         """
         Send data to the authentication service. Requires encoding before sending.
         :param uuid: the sender's UUID
-        :param auth: the ubirch backend auth token (password)
+        :param auth: the ubirch backend auth token (ubirchAuthToken)
         :param upp: the msgpack encoded data to send (UPP)
         :return: the server response status code, the server response content (body)
         """
@@ -50,7 +50,7 @@ class API:
         """
         Send a JSON data message to the ubirch data service. Requires encoding before sending.
         :param uuid: the sender's UUID
-        :param auth: the ubirch backend auth token (password)
+        :param auth: the ubirch backend auth token (ubirchAuthToken)
         :param message: the encoded JSON message to send to the data service
         :return: the server response status code, the server response content (body)
         """
@@ -66,7 +66,7 @@ class API:
         Claim SIM identity at the ubirch backend.
         The response contains the SIM applet PIN to unlock crypto functionality.
         :param imsi: the SIM international mobile subscriber identity (IMSI)
-        :param auth: the ubirch backend auth token (password)
+        :param auth: the ubirch backend auth token (ubirchAuthToken)
         :return: the server response
         """
         if self.debug:
