@@ -16,7 +16,6 @@ from lib.pyboard import *
 from lib.realtimeclock import enable_time_sync, wait_for_sync
 from sensor import MovementSensor
 from sensor_config import *
-from state_machine import *
 import json
 import logging
 
@@ -100,8 +99,7 @@ class StateMachine(object):
             imsi = get_imsi(self.lte)
             log.info("IMSI: " + imsi)
         except Exception as e:
-            log.exception("\tERROR setting up modem (%s)", e)
-            # error_handler.log(e, COLOR_MODEM_FAIL)
+            log.exception("\tERROR setting up modem (%s)", str(e))
             while True:
                 pycom_machine.idle()
 
@@ -118,8 +116,7 @@ class StateMachine(object):
             self.connection = get_connection(self.lte, self.cfg)  # initialize connection object depending on config
             self.api = ubirch.API(self.cfg)  # set up API for backend communication
         except Exception as e:
-            log.exception("\tERROR loading configuration (%s)", e)
-            # error_handler.log(e, COLOR_CONFIG_FAIL)
+            log.exception("\tERROR loading configuration (%s)", str(e))
             while True:
                 pycom_machine.idle()
 
@@ -138,18 +135,16 @@ class StateMachine(object):
             try:
                 self.connection.connect()
             except Exception as e:
-                log.exception(e)
+                log.exception(str(e))
                 pycom_machine.reset()
-                # error_handler.log(e, COLOR_INET_FAIL, reset=True)
 
             try:
                 pin = bootstrap(imsi, self.api)
                 with open(pin_file, "wb") as f:
                     f.write(pin.encode())
             except Exception as e:
-                log.exception(e)
+                log.exception(str(e))
                 pycom_machine.reset()
-                # error_handler.log(e, COLOR_BACKEND_FAIL, reset=True)
 
         # disconnect from LTE connection before accessing SIM application
         # (this is only necessary if we are connected via LTE)
@@ -162,7 +157,7 @@ class StateMachine(object):
         try:
             self.sim = ubirch.SimProtocol(lte=self.lte, at_debug=self.debug)
         except Exception as e:
-            log.exception(e)
+            log.exception(str(e))
             pycom_machine.reset()
             # error_handler.log(e, COLOR_SIM_FAIL, reset=True)
 
@@ -313,7 +308,7 @@ class StateConnecting(State):
             log.info("\twaiting for time sync")
             wait_for_sync(print_dots=False)
         except Exception as e:
-            log.exception(e)
+            log.exception(str(e))
             pycom_machine.reset()
             # error_handler.log(e, COLOR_INET_FAIL, reset=True)  # todo check reset
             return False
@@ -462,6 +457,28 @@ class StateMeasuringPaused(State):
                 machine.go_to_state('waitingForOvershoot')
 
 
+def _log_level(level: str):
+    switcher = {
+        'error': logging.ERROR,
+        'warning': logging.WARNING,
+        'info': logging.INFO,
+        'debug': logging.DEBUG
+    }
+    return switcher.get(level, logging.INFO)
+
+
+def _state_changer(state: str):
+    switcher = {
+        'installation': 'waitingForOvershoot',
+        'blinking': 'blinking',
+        'sensing': 'waitingForOvershoot',
+        'custom1': 'waitingForOvershoot',
+        'custom2': 'waitingForOvershoot',
+        'custom3': 'waitingForOvershoot'
+    }
+    return switcher.get(state, 'error')
+
+
 class StateInactive(State):
 
     def __init__(self):
@@ -479,6 +496,7 @@ class StateInactive(State):
 
         level, state = _get_state(machine)
         print("LEVEL: ({}) STATE:({})".format(level, state))
+        self._adjust_level_state(machine, level, state)
         machine.intervalForInactivityEventMs *= machine.ExponentialBackoffFactorForInactivityEvent
         log.debug("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
 
@@ -496,6 +514,10 @@ class StateInactive(State):
             now = time.ticks_ms()
             if now >= self._inactive_time + machine.intervalForInactivityEventMs:
                 machine.go_to_state('inactive')  # todo check if this can be simplified
+
+    def _adjust_level_state(self, machine, level, state):
+        log.setLevel(_log_level(level))
+        machine.go_to_state(_state_changer(state))
 
 
 # stay here for a given time and blink
@@ -601,7 +623,7 @@ def _send_event(machine, event_name: str, event_value, current_time: float, last
         upp = machine.sim.message_chained(machine.key_name, elevate_serialized, hash_before_sign=True)
         print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
     except Exception as e:
-        log.exception(e)
+        log.exception(str(e))
         pycom_machine.reset()
 
     machine.connection.connect()
@@ -615,17 +637,18 @@ def _send_event(machine, event_name: str, event_value, current_time: float, last
                                                      json.dumps(elevate_data))
             log.debug("RESPONSE: {}".format(content))
         except Exception as e:
-            log.error(e)
+            log.exception(str(e))
             pycom_machine.reset()
 
         # send UPP to the ubirch authentication service to be anchored to the blockchain
         print("++ sending UPP")
+        # machine.connection.disconnect()
+        # machine.connection.connect()
         try:
             status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                      machine.api.send_upp, machine.uuid, upp)
-            log.debug("NIOMON:({}) {}".format(status_code, str(content)))
         except Exception as e:
-            log.error(e)
+            log.exception(str(e))
             pycom_machine.reset()
 
         # communication worked in general, now check server response
@@ -633,9 +656,10 @@ def _send_event(machine, event_name: str, event_value, current_time: float, last
             raise Exception("backend (UPP) returned error: ({}) {}".format(status_code,
                                                                            ubinascii.hexlify(content).decode()))
     except Exception as e:
-        # TODO this does not work yet => log.error(e)
-        print("{}".format(e))
-
+        log.exception(str(e))
+    # if len(content) > 0:  # todo check why this sometimes fails
+    #     log.debug("NIOMON:({}) {}".format(status_code, str(content)))
+    machine.connection.disconnect()
 
 def _get_state(machine):
     print("GET THE STATE")
@@ -648,18 +672,18 @@ def _get_state(machine):
         log.debug("++ getting elevate state")
         try:
             status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                     machine.elevate_api.get_state, machine.uuid, '')
-            log.debug("RESPONSE: {}{}".format(level, state))
+                                                          machine.elevate_api.get_state, machine.uuid, '')
+            log.debug("RESPONSE: {} {}".format(level, state))
         except Exception as e:
-            log.error(e)
+            log.exception(str(e))
             pycom_machine.reset()
             # communication worked in general, now check server response
             if not 200 <= status_code < 300:
                 raise Exception("backend (ELEVATE) returned error: ({})".format(status_code))
     except Exception as e:
-        # TODO this does not work yet => log.error(e)
-        print("{}".format(e))
+        log.exception(str(e))
 
+    machine.connection.disconnect()
     return level, state
 
 

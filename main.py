@@ -31,19 +31,13 @@ FMT = "{\'t\':\'%(asctime)s\'," \
 #       "\'n\':\'%(name)s\'," \
 fileHandler = logging.FileHandler(filename="/flash/testlog2.txt")
 fileHandler.setFormatter(logging.Formatter(fmt=FMT))
-streamHandler = logging.StreamHandler(sys.stdout)
+# streamHandler = logging.StreamHandler(sys.stdout)
 logging.basicConfig(level=logging.DEBUG,
                     format=FMT)
 log = logging.getLogger()
-log.addHandler(fileHandler)
+# log.addHandler(fileHandler)
 
-status_code = 200
-cntnt = "we love tno code"
-content = "submitting CSR failed: ({}) {}".format(status_code, str(cntnt))
-try:
-    1/0
-except:
-    log.exception("backend (UPP) returned error: ({}) {}".format(status_code, str(content)))
+log.warning("coming from reset")
 
 
 class Main:
@@ -65,16 +59,12 @@ class Main:
         # start with the connecting state
         self.root_controller.go_to_state('connecting')
 
-
     def read_loop(self):
-        # get intervals
-        # m_interval = self.cfg['measure_interval_s']
-        # s_interval = self.cfg['send_interval_measurements']
-
         while True:
             self.root_controller.update()
             time.sleep(0.01)
             wdt.feed()
+
 
 main = Main()
 main.read_loop()

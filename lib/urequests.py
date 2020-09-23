@@ -86,7 +86,7 @@ def request(method, url, data=None, json=None, headers={}, stream=None):
             s.write(data)
 
         l = s.readline()
-        print(l)
+        # print(l)
         l = l.split(None, 2)
         status = int(l[1])
         reason = ""

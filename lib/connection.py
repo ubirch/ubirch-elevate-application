@@ -2,6 +2,7 @@ import sys
 import time
 
 import machine
+from network import LTE
 
 
 class Connection:
@@ -24,6 +25,8 @@ class NB_IoT(Connection):
         self.band = band
         self.attachtimeout = attachtimeout
         self.connecttimeout = connecttimeout
+
+        self.lte.lte_callback(LTE.EVENT_COVERAGE_LOSS, self.cb_handler)
 
     def attach(self):
         if self.lte.isattached():
@@ -74,6 +77,10 @@ class NB_IoT(Connection):
 
     def setconnecttimeout(self, connecttimeout: int):
         self.connecttimeout = connecttimeout
+
+    def cb_handler(self, arg):
+        print("CB: LTE Coverage lost")
+        self.lte.deinit()
 
 
 class WIFI(Connection):
@@ -134,3 +141,5 @@ def get_connection(lte: LTE, cfg: dict) -> Connection:
     else:
         raise Exception(
             "Connection type {} not supported. Supported types: 'wifi' and 'nbiot'".format(cfg['connection']))
+
+

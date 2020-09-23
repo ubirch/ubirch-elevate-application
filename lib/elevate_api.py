@@ -81,10 +81,12 @@ class ElevateAPI:
                 # print(props)
                 if 'firmwareLogLevel' in props:
                     log_level = props['firmwareLogLevel']
-                    print("LOGGING AT", log_level)
+                    if self.debug:
+                        print("LOGGING AT", log_level)
                 if 'firmwareState' in props:
                     state = props['firmwareState']
-                    print("STATE AT", state)
+                    if self.debug:
+                        print("STATE AT", state)
         return r, log_level, state
 
     """
