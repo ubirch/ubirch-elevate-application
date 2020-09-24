@@ -61,6 +61,7 @@ class LIS2HH12:
         self.int_pin = None
         self.act_dur = 0
         self.debounced = False
+        self._user_handler = None
 
         whoami = self.i2c.readfrom_mem(ACC_I2CADDR, PRODUCTID_REG, 1)
         if (whoami[0] != 0x41):

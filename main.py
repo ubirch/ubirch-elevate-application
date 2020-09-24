@@ -11,6 +11,7 @@ from error_handling import *
 from config import *
 
 import machine
+import micropython
 
 # set watchdog: if execution hangs/takes longer than 'timeout' an automatic reset is triggered
 # we need to do this as early as possible in case an import cause a freeze for some reason
@@ -35,7 +36,7 @@ fileHandler.setFormatter(logging.Formatter(fmt=FMT))
 logging.basicConfig(level=logging.DEBUG,
                     format=FMT)
 log = logging.getLogger()
-# log.addHandler(fileHandler)
+log.addHandler(fileHandler)
 
 log.warning("coming from reset")
 
@@ -62,7 +63,8 @@ class Main:
     def read_loop(self):
         while True:
             self.root_controller.update()
-            time.sleep(0.01)
+            time.sleep(0.1)
+            # print(micropython.mem_info())
             wdt.feed()
 
 

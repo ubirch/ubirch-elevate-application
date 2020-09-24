@@ -2,6 +2,7 @@ import math
 import os
 import time
 from uuid import UUID
+import sys # todo remove me
 
 import machine
 import pycom
@@ -54,6 +55,7 @@ def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_f
             print("\tretrying with modem reset")
             sim.deinit()
             reset_modem(lte)  # TODO: should probably be connection.reset_hardware()
+            sim.init()
             conn.connect()
 
         # try to send multiple times (with reconnect)
@@ -70,6 +72,7 @@ def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_f
                 except Exception as e:
                     # TODO: log/print exception?
                     print("\tsending failed: {}".format(e))
+                    sys.print_exception(e)#TODO remove me
                     # (continues to top of send_attempts loop)
             else:
                 # all send attempts used up

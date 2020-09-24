@@ -73,7 +73,7 @@ class StateMachine(object):
 
         self.breath = LedBreath()
 
-        self.latError = None
+        self.lastError = None
         # set all necessary time values
         self.IntervalForDetectingInactivityMs = 60000
         self.OvershotDetectionPauseIntervalMs = 60000
@@ -111,7 +111,7 @@ class StateMachine(object):
             self.cfg = load_config(sd_card_mounted=SD_CARD_MOUNTED)
 
             self.debug = self.cfg['debug']  # set debug level
-            if self.debug: print("\t" + repr(self.cfg))
+            # if self.debug: print("\t" + repr(self.cfg))
 
             self.connection = get_connection(self.lte, self.cfg)  # initialize connection object depending on config
             self.api = ubirch.API(self.cfg)  # set up API for backend communication
@@ -159,13 +159,13 @@ class StateMachine(object):
         except Exception as e:
             log.exception(str(e))
             pycom_machine.reset()
-            # error_handler.log(e, COLOR_SIM_FAIL, reset=True)
 
         # unlock SIM
         try:
             self.sim.sim_auth(pin)
         except Exception as e:
-            error_handler.log(e, COLOR_SIM_FAIL)
+            log.exception(str(e))
+            pycom_machine.reset()
             # if PIN is invalid, there is nothing we can do -> block
             if isinstance(e, ValueError):
                 log.critical("PIN is invalid, can't continue")
@@ -177,7 +177,10 @@ class StateMachine(object):
 
         # get UUID from SIM
         self.key_name = "ukey"
-        self.uuid = self.sim.get_uuid(self.key_name)
+        try:
+            self.uuid = self.sim.get_uuid(self.key_name)
+        except Exception as e:
+            log.exception(str(e))
         log.info("UUID: %s", str(self.uuid))
 
     def speed(self):
@@ -226,6 +229,13 @@ class StateMachine(object):
     def reset_state_machine(self):
         """As indicated, reset the machines system's variables."""
         log.debug('> > Resetting the machine')
+
+    def enable_interrupt(self):
+        self.sensor.pysense.accelerometer.restart_fifo()
+        self.sensor.pysense.accelerometer.enable_fifo_interrupt(handler=None)
+
+    def disable_interrupt(self):
+        self.sensor.pysense.accelerometer.enable_fifo_interrupt(self.sensor.accelerometer_interrupt_cb)
 
 
 ################################################################################
@@ -566,6 +576,9 @@ class StateError(State):
             log.error("[Core] Last error: {}".format(machine.lastError))
         else:
             log.error("[Core] Unknown error.")
+        
+        machine.sim.deinit()
+        pycom_machine.reset()
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -581,7 +594,7 @@ class StateError(State):
 ################################################################################
 
 # Send the data away
-def _send_event(machine, event_name: str, event_value, current_time: float, last_time: float):
+def _send_event(machine, event_name: str, event_value, current_time: float):
     print("SENDING")
     # get the time
     t = time.gmtime(current_time)  # (1970, 1, 1, 0, 0, 15, 3, 1)
@@ -613,10 +626,7 @@ def _send_event(machine, event_name: str, event_value, current_time: float, last
     }
     elevate_serialized = serialize_json(elevate_data) # todo, the serialization is not working yet
     log.debug("ELEVATE RAW: {}".format(json.dumps(elevate_data)))
-    print("ELEVATE SER:", elevate_serialized)
 
-    # serialized = serialize_json(event_data)
-    # print("SERIALIZED:", serialized)
     # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
     try:
         print("++ creating UPP")
@@ -624,7 +634,7 @@ def _send_event(machine, event_name: str, event_value, current_time: float, last
         print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
     except Exception as e:
         log.exception(str(e))
-        pycom_machine.reset()
+        machine.go_to_state('error')
 
     machine.connection.connect()
 
@@ -638,18 +648,18 @@ def _send_event(machine, event_name: str, event_value, current_time: float, last
             log.debug("RESPONSE: {}".format(content))
         except Exception as e:
             log.exception(str(e))
-            pycom_machine.reset()
+            machine.go_to_state('error')
 
         # send UPP to the ubirch authentication service to be anchored to the blockchain
         print("++ sending UPP")
-        # machine.connection.disconnect()
-        # machine.connection.connect()
         try:
             status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                      machine.api.send_upp, machine.uuid, upp)
         except Exception as e:
             log.exception(str(e))
-            pycom_machine.reset()
+            machine.go_to_state('error')
+            # pycom_machine.reset()
+
 
         # communication worked in general, now check server response
         if not 200 <= status_code < 300:
@@ -657,11 +667,15 @@ def _send_event(machine, event_name: str, event_value, current_time: float, last
                                                                            ubinascii.hexlify(content).decode()))
     except Exception as e:
         log.exception(str(e))
-    # if len(content) > 0:  # todo check why this sometimes fails
-    #     log.debug("NIOMON:({}) {}".format(status_code, str(content)))
-    machine.connection.disconnect()
+    print("T:{} V:{}".format(type(content), repr(content)))
+    try:
+        log.debug("NIOMON:({}) {}".format(status_code, repr(content)))
+    except Exception as e:
+        log.exception(repr(e))
+
 
 def _get_state(machine):
+    # machine.disable_interrupt()
     print("GET THE STATE")
     level = ""
     state = ""
@@ -673,17 +687,16 @@ def _get_state(machine):
         try:
             status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                           machine.elevate_api.get_state, machine.uuid, '')
-            log.debug("RESPONSE: {} {}".format(level, state))
+            log.debug("ELEVATE: {} {}".format(level, state))
         except Exception as e:
             log.exception(str(e))
-            pycom_machine.reset()
+            machine.go_to_state('error')
+            # pycom_machine.reset()
             # communication worked in general, now check server response
             if not 200 <= status_code < 300:
                 raise Exception("backend (ELEVATE) returned error: ({})".format(status_code))
     except Exception as e:
         log.exception(str(e))
-
-    machine.connection.disconnect()
     return level, state
 
 

@@ -1,6 +1,5 @@
 import usocket
 
-import uselect as select
 
 class Response:
     def __init__(self, f):
@@ -58,57 +57,32 @@ def request(method, url, data=None, json=None, headers={}, stream=None):
     ai = ai[0]
 
     s = usocket.socket(ai[0], ai[1], ai[2])
-    s.setblocking(False)
     try:
-        try:
-            s.connect(ai[-1])
-        except OSError as e:
-            print(str(e))
-            if str(e) == '[Errno 119] EINPROGRESS':  # For non-Blocking sockets 119 is EINPROGRESS
-                print("In Progress")
-            else:
-                raise e
+        s.connect(ai[-1])
         if proto == "https:":
             s = ussl.wrap_socket(s, server_hostname=host)
-        poller = select.poll()
-        poller.register(s, select.POLLOUT | select.POLLIN)
-        while True:
-            res = poller.poll(1000)
-            if res:
-                if res[0][1] & select.POLLOUT:
-                    print("Doing Handshake")
-                    s.do_handshake()
-                    print("Handshake Done")
-
-                    s.write(b"%s /%s HTTP/1.0\r\n" % (method, path))
-                    if not "Host" in headers:
-                        s.write(b"Host: %s\r\n" % host)
-                    # Iterate over keys to avoid tuple alloc
-                    for k in headers:
-                        s.write(k)
-                        s.write(b": ")
-                        s.write(headers[k])
-                        s.write(b"\r\n")
-                    if json is not None:
-                        assert data is None
-                        import ujson
-                        data = ujson.dumps(json)
-                        s.write(b"Content-Type: application/json\r\n")
-                    if data:
-                        s.write(b"Content-Length: %d\r\n" % len(data))
-                    s.write(b"\r\n")
-                    if data:
-                        s.write(data)
-
-                    poller.modify(s, select.POLLIN)
-                    continue
-                if res[0][1] & select.POLLIN:
-                    print(s.recv(4092))
-                    break
-            break
+        s.write(b"%s /%s HTTP/1.0\r\n" % (method, path))
+        if not "Host" in headers:
+            s.write(b"Host: %s\r\n" % host)
+        # Iterate over keys to avoid tuple alloc
+        for k in headers:
+            s.write(k)
+            s.write(b": ")
+            s.write(headers[k])
+            s.write(b"\r\n")
+        if json is not None:
+            assert data is None
+            import ujson
+            data = ujson.dumps(json)
+            s.write(b"Content-Type: application/json\r\n")
+        if data:
+            s.write(b"Content-Length: %d\r\n" % len(data))
+        s.write(b"\r\n")
+        if data:
+            s.write(data)
 
         l = s.readline()
-        print(l)
+        # print(l)
         l = l.split(None, 2)
         status = int(l[1])
         reason = ""

@@ -70,9 +70,7 @@ class ElevateAPI:
         if self.debug:
             print("** getting the current state from " + self.data_url)
 
-        r, c = _get_request(url=self.data_url, headers=self._elevate_headers)
-        if self.debug:
-            print("**  r={} c={}".format(r, c))
+        r, c = _get_request(url=self.data_url + "?include=properties.firmwareLogLevel,properties.firmwareState", headers=self._elevate_headers)
         if r == 200:
             state_info = json.loads(c)
             # print("dump", json.dumps(state_info))
@@ -81,12 +79,8 @@ class ElevateAPI:
                 # print(props)
                 if 'firmwareLogLevel' in props:
                     log_level = props['firmwareLogLevel']
-                    if self.debug:
-                        print("LOGGING AT", log_level)
                 if 'firmwareState' in props:
                     state = props['firmwareState']
-                    if self.debug:
-                        print("STATE AT", state)
         return r, log_level, state
 
     """
