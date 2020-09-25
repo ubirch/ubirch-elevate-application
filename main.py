@@ -58,12 +58,12 @@ class Main:
         self.root_controller.add_state(StateBlinking())
         self.root_controller.add_state(StateError())
         # start with the connecting state
-        self.root_controller.go_to_state('connecting')
+        self.root_controller.go_to_state('waitingForOvershoot')
 
     def read_loop(self):
         while True:
             self.root_controller.update()
-            time.sleep(0.1)
+            time.sleep(0.01)
             # print(micropython.mem_info())
             wdt.feed()
 

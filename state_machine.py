@@ -395,6 +395,7 @@ class StateWaitingForOvershot(State):
     def __init__(self):
         super().__init__()
         self._waiting_time = 0
+        self.num = 0
 
     @property
     def name(self):
@@ -404,6 +405,7 @@ class StateWaitingForOvershot(State):
         State.enter(self, machine)
         self._waiting_time = time.ticks_ms()
         machine.breath.set_color(LED_PURPLE)
+        self.num = 0
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -412,13 +414,22 @@ class StateWaitingForOvershot(State):
     def update(self, machine):
         if State.update(self, machine):
             if machine.sensor.trigger:
-                machine.sensor.calc_speed()
-                if machine.speed() > g_THRESHOLD:
-                    machine.go_to_state('measuringPaused')
+                machine.sensor.trigger = False
+                print(repr(machine.sensor.accel_xyz))
+                self.num = self.num + 1
+                print("*", end='')
+                if self.num > 150:
+                    self.num = 0
+                    pycom_machine.sleep(20)
+                    print("\r\n\r\n\r\n")
 
-            now = time.ticks_ms()
-            if now >= self._waiting_time + machine.IntervalForDetectingInactivityMs:
-                machine.go_to_state('inactive')
+            #     machine.sensor.calc_speed()
+            #     if machine.speed() > g_THRESHOLD:
+            #         machine.go_to_state('measuringPaused')
+            #
+            # now = time.ticks_ms()
+            # if now >= self._waiting_time + machine.IntervalForDetectingInactivityMs:
+            #     machine.go_to_state('inactive')
 
 
 class StateMeasuringPaused(State):
@@ -445,7 +456,7 @@ class StateMeasuringPaused(State):
         machine.intervalForInactivityEventMs = machine.FirstIntervalForInactivityEventMs
         log.debug("SPEED: {}{}".format(machine.sensor.speed_max, machine.sensor.speed_min))
 
-        _send_event(machine, "speed", machine.speed(), machine.timerActivity, machine.timerLastActivity)
+        _send_event(machine, "speed", machine.speed(), machine.timerActivity)
 
         # reset the speed values for next time
         machine.sensor.speed_max[0] = 0.0
@@ -639,17 +650,6 @@ def _send_event(machine, event_name: str, event_value, current_time: float):
     machine.connection.connect()
 
     try:
-        # send data message to data service, with reconnects/modem resets if necessary
-        log.debug("++ sending elevate")
-        try:
-            status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                     machine.elevate_api.send_data, machine.uuid,
-                                                     json.dumps(elevate_data))
-            log.debug("RESPONSE: {}".format(content))
-        except Exception as e:
-            log.exception(str(e))
-            machine.go_to_state('error')
-
         # send UPP to the ubirch authentication service to be anchored to the blockchain
         print("++ sending UPP")
         try:
@@ -661,12 +661,24 @@ def _send_event(machine, event_name: str, event_value, current_time: float):
             # pycom_machine.reset()
 
 
+        # send data message to data service, with reconnects/modem resets if necessary
+        log.debug("++ sending elevate")
+        try:
+            status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
+                                                     machine.elevate_api.send_data, machine.uuid,
+                                                     json.dumps(elevate_data))
+            log.debug("RESPONSE: {}".format(content))
+        except Exception as e:
+            log.exception(str(e))
+            machine.go_to_state('error')
+
         # communication worked in general, now check server response
         if not 200 <= status_code < 300:
             raise Exception("backend (UPP) returned error: ({}) {}".format(status_code,
                                                                            ubinascii.hexlify(content).decode()))
     except Exception as e:
         log.exception(str(e))
+    print("T:{} V:{}".format(type(status_code), repr(status_code)))
     print("T:{} V:{}".format(type(content), repr(content)))
     try:
         log.debug("NIOMON:({}) {}".format(status_code, repr(content)))

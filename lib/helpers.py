@@ -281,7 +281,7 @@ class LedBreath(object):
         reset_blinking is used to set the LED breathing to a fast a bright mode.
         This Method shall be used to reset the .
         """
-        # get back the backuped values
+        # get back the backed values
         self.period = self.period_back
         self.color = self.color_back
         self.brightness = self.brightness_back

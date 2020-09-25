@@ -51,7 +51,7 @@ class ErrorHandler:
 
     def log(self, error: str or Exception, led_color: int, reset: bool = False):
         set_led(led_color)
-        print_to_console(error)
+        # print_to_console(error)
         if self.logfile is not None:
             self.logfile.log(error)
         machine.idle()
@@ -68,7 +68,7 @@ class FileLogger:
         # set up error logging to log file
         self.rtc = machine.RTC()
         self.MAX_FILE_SIZE = max_file_size_kb * 1000  # in bytes
-        self.logfile = ('/sd/' if log_to_sd_card else '') + 'log.txt'
+        self.logfile = ('/sd/' if log_to_sd_card else '') + 'log12.txt'
         with open(self.logfile, 'a') as f:
             self.file_position = f.tell()
         print("++ file logging enabled")
@@ -79,24 +79,27 @@ class FileLogger:
         if log_to_sd_card:
             print("\tfree SD memory:   {: 6d} MB".format(int(os.getfree('/sd') / 1000)))
         print("")
+        self.count = 0
 
     def log(self, error: str or Exception):
+        self.logfile = '/sd/' + 'logy{}.txt'.format(self.count)
         # stop logging to file once file reached its max size
         if self.file_position >= self.MAX_FILE_SIZE:
             return
+        self.count = self.count + 1
 
         # log error message to file
         with open(self.logfile, 'a') as f:
             # set file to recent position
-            f.seek(self.file_position, 0)
+            # f.seek(self.file_position, 0)
 
             # log error message and traceback if error is an exception
             t = self.rtc.now()
             f.write('({:04d}.{:02d}.{:02d} {:02d}:{:02d}:{:02d}) '.format(t[0], t[1], t[2], t[3], t[4], t[5]))
-            if isinstance(error, Exception):
-                sys.print_exception(error, f)
-            else:
-                f.write(error + "\n")
+            # if isinstance(error, Exception):
+            #     sys.print_exception(error, f)
+            # else:
+            f.write(error + "\n")
 
             # remember current file position
-            self.file_position = f.tell()
+            # self.file_position = f.tell()
