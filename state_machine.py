@@ -445,7 +445,7 @@ class StateMeasuringPaused(State):
         machine.intervalForInactivityEventMs = machine.FirstIntervalForInactivityEventMs
         log.debug("SPEED: {}{}".format(machine.sensor.speed_max, machine.sensor.speed_min))
 
-        _send_event(machine, "speed", machine.speed(), machine.timerActivity, machine.timerLastActivity)
+        _send_event(machine, "speed", machine.speed(), machine.timerActivity)
 
         # reset the speed values for next time
         machine.sensor.speed_max[0] = 0.0

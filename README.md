@@ -13,6 +13,15 @@ you need to provide a `config.json` file, which includes:
 
 ```json
 {
-  "elevateDataUrl": "https://www.accessibility.cloud/equipment-status-reports.json",
+  "elevateDataUrl": "https://wheelmap.pro/hardware-sensors/",
+  "elevateDeviceId": "<ENTER TOKEN HERE>",     // get this ID from the end of the URL
+  "elevateDeviceToken": "<ENTER TOKEN HERE>",  // get this from "deice specific firmware access token
+  "elevateAppToken": "<ENTER TOKEN HERE>", // should stay the same
+  "ubirchAuthToken": "<ENTER TOKEN HERE>", // get this from ubirch console
+  "env": "prod",
+  "connection":"nbiot",
+  "nbiot_extended_attach_timeout": 900,
+  "nbiot_extended_connect_timeout": 60,
+  "debug": true
 }
 ```
