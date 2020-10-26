@@ -9,6 +9,7 @@ from state_machine import *
 from helpers import *
 from error_handling import *
 from config import *
+import gc
 
 import machine
 import micropython
@@ -22,6 +23,9 @@ print()
 
 # bigger thread stack needed for the requests module used in UbirchDataClient (default: 4096)
 _thread.stack_size(16384)
+
+# enable the garbage collector
+gc.enable()
 
 wlan = WLAN(mode=WLAN.STA)
 
@@ -63,7 +67,7 @@ class Main:
     def read_loop(self):
         while True:
             self.root_controller.update()
-            time.sleep(0.1)
+            time.sleep(0.01)
             # print(micropython.mem_info())
             wdt.feed()
 

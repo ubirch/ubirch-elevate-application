@@ -183,6 +183,21 @@ class StateMachine(object):
             log.exception(str(e))
         log.info("UUID: %s", str(self.uuid))
 
+        # send a X.509 Certificate Signing Request for the public key to the ubirch identity service (once)
+        csr_file = "csr_{}_{}.der".format(self.uuid, self.api.env)
+        if csr_file not in os.listdir():
+            try:
+                self.connection.connect()
+            except Exception as e:
+                log.exception(str(e))
+
+            try:
+                csr = submit_csr(self.key_name, self.cfg["CSR_country"], self.cfg["CSR_organization"], self.sim, self.api)
+                with open(csr_file, "wb") as f:
+                    f.write(csr)
+            except Exception as e:
+                log.exception(str(e))
+
     def speed(self):
         max_speed = 0.0
         i = 0
@@ -667,9 +682,9 @@ def _send_event(machine, event_name: str, event_value, current_time: float):
                                                                            ubinascii.hexlify(content).decode()))
     except Exception as e:
         log.exception(str(e))
-    print("T:{} V:{}".format(type(content), repr(content)))
+#     print("T:{} V:{}".format(type(content), repr(content)))
     try:
-        log.debug("NIOMON:({}) {}".format(status_code, repr(content)))
+        log.debug("NIOMON:({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
     except Exception as e:
         log.exception(repr(e))
 

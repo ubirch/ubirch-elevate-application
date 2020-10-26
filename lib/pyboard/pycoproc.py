@@ -1,10 +1,24 @@
+#!/usr/bin/env python
+#
+# Copyright (c) 2020, Pycom Limited.
+#
+# This software is licensed under the GNU GPL version 3 or any
+# later version, with permitted additional terms. For more information
+# see the Pycom Licence v1.0 document supplied with this file, or
+# available at https://www.pycom.io/opensource/licensing
+#
+
+# See https://docs.pycom.io for more information regarding library specifics
+
+from machine import Pin
+from machine import I2C
 import time
 
 import pycom
 from machine import I2C
 from machine import Pin
 
-__version__ = '0.0.2'
+__version__ = '0.0.4'
 
 """ PIC MCU wakeup reason types """
 WAKE_REASON_ACCELEROMETER = 1
@@ -29,6 +43,7 @@ class Pycoproc:
     CMD_CALIBRATE = const(0x22)
     CMD_BAUD_CHANGE = const(0x30)
     CMD_DFU = const(0x31)
+    CMD_RESET = const(0x40)
 
     REG_CMD = const(0)
     REG_ADDRL = const(1)
@@ -58,6 +73,7 @@ class Pycoproc:
     ADRESL_ADDR = const(0x09B)
     ADRESH_ADDR = const(0x09C)
 
+    TRISA_ADDR = const(0x08C)
     TRISC_ADDR = const(0x08E)
 
     PORTA_ADDR = const(0x00C)
@@ -77,7 +93,7 @@ class Pycoproc:
         if i2c is not None:
             self.i2c = i2c
         else:
-            self.i2c = I2C(0, mode=I2C.MASTER, pins=(sda, scl))
+            self.i2c = I2C(0, mode=I2C.MASTER, pins=(sda, scl), baudrate=100000)
 
         self.sda = sda
         self.scl = scl
@@ -100,13 +116,18 @@ class Pycoproc:
         self.poke_memory(ADCON1_ADDR, (0x06 << _ADCON1_ADCS_POSN))
         # enable the pull-up on RA3
         self.poke_memory(WPUA_ADDR, (1 << 3))
-        # make RC5 an input
-        self.set_bits_in_memory(TRISC_ADDR, 1 << 5)
+
         # set RC6 and RC7 as outputs and enable power to the sensors and the GPS
         self.mask_bits_in_memory(TRISC_ADDR, ~(1 << 6))
         self.mask_bits_in_memory(TRISC_ADDR, ~(1 << 7))
 
-        if self.read_fw_version() < 6:
+
+        self.gps_standby(False)
+        self.sensor_power()
+        self.sd_power()
+
+        # for Pysense/Pytrack 2.0, the minimum firmware version is 15
+        if self.read_fw_version() < 15:
             raise ValueError('Firmware out of date')
 
     def _write(self, data, wait=True):
@@ -194,21 +215,21 @@ class Pycoproc:
 
     def go_to_sleep(self, gps=True):
         # enable or disable back-up power to the GPS receiver
-        if gps:
-            self.set_bits_in_memory(PORTC_ADDR, 1 << 7)
-        else:
-            self.mask_bits_in_memory(PORTC_ADDR, ~(1 << 7))
+        self.gps_standby(gps)
+        self.sensor_power(False)
+        self.sd_power(False)
+
         # disable the ADC
         self.poke_memory(ADCON0_ADDR, 0)
 
         if self.wake_int:
             # Don't touch RA3, RA5 or RC1 so that interrupt wake-up works
-            self.poke_memory(ANSELA_ADDR, ~((1 << 3) | (1 << 5)))
+            self.poke_memory(ANSELA_ADDR, ~(1 << 3))
             self.poke_memory(ANSELC_ADDR, ~((1 << 6) | (1 << 7) | (1 << 1)))
         else:
             # disable power to the accelerometer, and don't touch RA3 so that button wake-up works
             self.poke_memory(ANSELA_ADDR, ~(1 << 3))
-            self.poke_memory(ANSELC_ADDR, ~(1 << 7))
+            self.poke_memory(ANSELC_ADDR, ~(0))
 
         self.poke_memory(ANSELB_ADDR, 0xFF)
 
@@ -224,8 +245,6 @@ class Pycoproc:
             self.set_bits_in_memory(INTCON_ADDR, 1 << 4)  # enable interrupt; set INTE)
 
         self._write(bytes([CMD_GO_SLEEP]), wait=False)
-        # kill the run pin
-        Pin('P3', mode=Pin.OUT, value=0)
 
     def calibrate_rtc(self):
         # the 1.024 factor is because the PIC LF operates at 31 KHz
@@ -236,7 +255,7 @@ class Pycoproc:
         self.i2c.deinit()
         Pin('P21', mode=Pin.IN)
         pulses = pycom.pulses_get('P21', 100)
-        self.i2c.init(mode=I2C.MASTER, pins=(self.sda, self.scl))
+        self.i2c.init(mode=I2C.MASTER, pins=(self.sda, self.scl), baudrate=100000)
         idx = 0
         for i in range(len(pulses)):
             if pulses[i][1] > EXP_RTC_PERIOD:
@@ -261,7 +280,7 @@ class Pycoproc:
         while self.peek_memory(ADCON0_ADDR) & _ADCON0_GO_nDONE_MASK:
             time.sleep_us(100)
         adc_val = (self.peek_memory(ADRESH_ADDR) << 2) + (self.peek_memory(ADRESL_ADDR) >> 6)
-        return (((adc_val * 3.3 * 280) / 1023) / 180) + 0.01  # add 10mV to compensate for the drop in the FET
+        return (((adc_val * 3.3 * 280) / 1023) / 180) + 0.01    # add 10mV to compensate for the drop in the FET
 
     def setup_int_wake_up(self, rising, falling):
         """ rising is for activity detection, falling for inactivity """
@@ -279,7 +298,43 @@ class Pycoproc:
             self.mask_bits_in_memory(IOCAN_ADDR, ~(1 << 5))
         self.wake_int = wake_int
 
-    def setup_int_pin_wake_up(self, rising_edge=True):
+    def setup_int_pin_wake_up(self, rising_edge = True):
         """ allows wakeup to be made by the INT pin (PIC -RC1) """
         self.wake_int_pin = True
         self.wake_int_pin_rising_edge = rising_edge
+
+    def gps_standby(self, enabled=True):
+        # make RC4 an output
+        self.mask_bits_in_memory(TRISC_ADDR, ~(1 << 4))
+        if enabled:
+            # drive RC4 low
+            self.mask_bits_in_memory(PORTC_ADDR, ~(1 << 4))
+        else:
+            # drive RC4 high
+            self.set_bits_in_memory(PORTC_ADDR, 1 << 4)
+
+    def sensor_power(self, enabled=True):
+        # make RC7 an output
+        self.mask_bits_in_memory(TRISC_ADDR, ~(1 << 7))
+        if enabled:
+            # drive RC7 high
+            self.set_bits_in_memory(PORTC_ADDR, 1 << 7)
+        else:
+            # drive RC7 low
+            self.mask_bits_in_memory(PORTC_ADDR, ~(1 << 7))
+
+    def sd_power(self, enabled=True):
+        # make RA5 an output
+        self.mask_bits_in_memory(TRISA_ADDR, ~(1 << 5))
+        if enabled:
+            # drive RA5 high
+            self.set_bits_in_memory(PORTA_ADDR, 1 << 5)
+        else:
+            # drive RA5 low
+            self.mask_bits_in_memory(PORTA_ADDR, ~(1 << 5))
+
+
+    # at the end:
+    def reset_cmd(self):
+        self._send_cmd(CMD_RESET)
+        return
