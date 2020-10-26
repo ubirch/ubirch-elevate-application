@@ -61,19 +61,21 @@ class StateMachine(object):
     def __init__(self):
         self.state = None
         self.states = {}
-        self.sensor = MovementSensor()
-        self.lte = LTE()
         self.cfg = []
         self.connection = None
         self.uuid = {}
         self.sim = None
+        self.pin = None
         self.key_name = ""
         self.api = None
         self.debug = False
+        self.lastError = None
 
+        # create instances of required objects
+        self.sensor = MovementSensor()
+        self.lte = LTE()
         self.breath = LedBreath()
 
-        self.lastError = None
         # set all necessary time values
         self.IntervalForDetectingInactivityMs = 60000
         self.OvershotDetectionPauseIntervalMs = 60000
@@ -130,8 +132,8 @@ class StateMachine(object):
 
         # get PIN from flash, or bootstrap from backend and then save PIN to flash
         pin_file = imsi + ".bin"
-        pin = get_pin_from_flash(pin_file, imsi)
-        if pin is None:
+        self.pin = get_pin_from_flash(pin_file, imsi)
+        if self.pin is None:
             try:
                 self.connection.connect()
             except Exception as e:
@@ -162,10 +164,10 @@ class StateMachine(object):
 
         # unlock SIM
         try:
-            self.sim.sim_auth(pin)
+            self.sim.sim_auth(self.pin)
         except Exception as e:
             log.exception(str(e))
-            pycom_machine.reset()
+            # pycom_machine.reset() # TODO check this again, what to do, if PN is unknown
             # if PIN is invalid, there is nothing we can do -> block
             if isinstance(e, ValueError):
                 log.critical("PIN is invalid, can't continue")
@@ -199,6 +201,11 @@ class StateMachine(object):
                 log.exception(str(e))
 
     def speed(self):
+        """
+        Calculate th maximum absolute speed value from current sensor values,
+        over all axis.
+        :return: the maximum value of the currently measured speed.
+        """
         max_speed = 0.0
         i = 0
         while i < 3:
@@ -210,9 +217,17 @@ class StateMachine(object):
         return max_speed
 
     def add_state(self, state):
+        """
+        Add a new state to the state machine
+        :param state: new state to add
+        """
         self.states[state.name] = state
 
     def go_to_state(self, state_name):
+        """
+        Go to the state, which is indicated in the state_name
+        :param state_name: new state to go to.
+        """
         if self.state:
             log.debug('> > Exiting {} A:{} L:{} I:{}'.format(self.state.name, self.timerActivity, self.timerLastActivity,
                                                          self.timerInactivity))
@@ -223,18 +238,30 @@ class StateMachine(object):
         self.state.enter(self)
 
     def update(self):
+        """
+        Run update function of the current state.
+        """
         if self.state:
             # print('Updating %s' % (self.state.name))
             self.state.update(self)
 
     # When pausing, don't exit the state
     def pause(self):
+        """
+        Pause the current state. # TODO currently not in use, maybe not necessary.
+        """
         self.state = self.states['paused']
         log.debug('> > Pausing')
         self.state.enter(self)
 
     # When resuming, don't re-enter the state
     def resume_state(self, state_name):
+        """
+        Resume the paused state. # TODO currently not in use, maybe not necessary.
+        :param state_name: indicating the state to resume.
+        :note this function does not go through state.enter(),
+        but directly back into the state.
+        """
         if self.state:
             log.debug('> > Exiting %s' % (self.state.name))
             self.state.exit(self)
@@ -242,46 +269,72 @@ class StateMachine(object):
         log.debug('> > Resuming %s' % (self.state.name))
 
     def reset_state_machine(self):
-        """As indicated, reset the machines system's variables."""
+        """
+        As indicated, reset the machines system's variables. # TODO currently not used.
+        """
         log.debug('> > Resetting the machine')
 
     def enable_interrupt(self):
+        """
+        Enable the Accelerometer Interrupt for fifo buffer. # TODO currently not in use, mybe unnecessary.
+        """
         self.sensor.pysense.accelerometer.restart_fifo()
-        self.sensor.pysense.accelerometer.enable_fifo_interrupt(handler=None)
+        self.sensor.pysense.accelerometer.enable_fifo_interrupt(self.sensor.accelerometer_interrupt_cb)
 
     def disable_interrupt(self):
-        self.sensor.pysense.accelerometer.enable_fifo_interrupt(self.sensor.accelerometer_interrupt_cb)
+        """
+        Disable the Accelerometer Interrupt for fifo interrupt. # TODO currently not used, maybe not necessary.
+        """
+        self.sensor.pysense.accelerometer.enable_fifo_interrupt(handler=None)
 
 
 ################################################################################
 # States
 
-
-# Abstract parent state class.
 class State(object):
-
+    """
+    Abstract Parent State Class.
+    """
     def __init__(self):
         pass
 
     @property
     def name(self):
+        """
+        Name of state for state interaction.
+        :return name string of the state.
+        """
         return ''
 
     def enter(self, machine):
+        """
+        Enter a specific state. This is called, when a new state is entered.
+        :param machine: state machine, which has the state
+        """
         pass
 
     def exit(self, machine):
+        """
+        Exit a specific state. This is called, when the old state is left.
+        :param machine: state machine, which has the state.
+        """
         pass
 
     def update(self, machine):
+        """
+        Update the current state, which means to run through the update routine.
+        Also breath with the LED.
+        :param machine: state machine, which has the state.
+        :return: True, to indicate, the function was called.
+        """
         machine.breath.update()
         return True
 
 
-# Sending Cellular Diagnostics State
-# todo figure out, how to get cellular diagnostics and transmit them
 class StateInitSystem(State):
-
+    """
+    Initialize the System. # TODO, not really implemented yet, currently not used.
+    """
     def __init__(self):
         super().__init__()
         self._cellular_wait_time = 0
@@ -308,9 +361,10 @@ class StateInitSystem(State):
                 machine.go_to_state('connecting')
 
 
-# Connecting State to connect to network
 class StateConnecting(State):
-
+    """
+    Connecting State to connect to network.
+    """
     def __init__(self):
         super().__init__()
 
@@ -326,7 +380,11 @@ class StateConnecting(State):
         State.exit(self, machine)
 
     def _connect(self, machine):
-        # connect to network
+        """
+        Connect to the given network
+        :param machine: state machine, which holds this state
+        :return: True, if connection established, otherwise false
+        """
         try:
             machine.connection.connect()
             enable_time_sync()
@@ -334,10 +392,9 @@ class StateConnecting(State):
             wait_for_sync(print_dots=False)
         except Exception as e:
             log.exception(str(e))
-            pycom_machine.reset()
+            pycom_machine.reset() # todo check for alternatives to RESET
             # error_handler.log(e, COLOR_INET_FAIL, reset=True)  # todo check reset
             return False
-
         return True
 
     def update(self, machine):
@@ -346,10 +403,11 @@ class StateConnecting(State):
             machine.go_to_state('sendingVersionDiagnostics')
 
 
-# Sending Version Diagnostics State
-# TODO figure out, what to do here
 class StateSendingVersionDiagnostics(State):
-
+    """
+    Sending Version Diagnostics to the backend.
+    TODO figure out, what to do here
+    """
     def __init__(self):
         super().__init__()
         self._version_wait_time = 0
@@ -372,12 +430,14 @@ class StateSendingVersionDiagnostics(State):
             now = time.ticks_ms()
             if now >= self._version_wait_time + STANDARD_DURATION:
                 machine.go_to_state('blinking') # 'sendingCellularDiagnostics')
+                # TODO the go to state has to be changed
 
 
-# Sending Cellular Diagnostics State
-# todo figure out, how to get cellular diagnostics and transmit them
 class StateSendingCellularDiagnostics(State):
-
+    """
+    Sending Cellular Diagnostics to the backend.
+    todo figure out, how to get cellular diagnostics and transmit them
+    """
     def __init__(self):
         super().__init__()
         self._cellular_wait_time = 0
@@ -395,7 +455,6 @@ class StateSendingCellularDiagnostics(State):
 
     def exit(self, machine):
         State.exit(self, machine)
-        machine.shower_count = 0
 
     def update(self, machine):
         if State.update(self, machine):
@@ -404,9 +463,11 @@ class StateSendingCellularDiagnostics(State):
                 machine.go_to_state('waitingForOvershoot')
 
 
-# wait here for acceleration to overshoot the threshold
 class StateWaitingForOvershot(State):
-
+    """
+    Wait here for acceleration to overshoot the threshold,
+    or until waiting time was exceeded.
+    """
     def __init__(self):
         super().__init__()
         self._waiting_time = 0
@@ -483,6 +544,11 @@ class StateMeasuringPaused(State):
 
 
 def _log_level(level: str):
+    """
+    Logging level switcher for handling different logging levels from backend.
+    :param level: ne logging level from backend
+    :return: translated logging level for logger
+    """
     switcher = {
         'error': logging.ERROR,
         'warning': logging.WARNING,
@@ -493,6 +559,11 @@ def _log_level(level: str):
 
 
 def _state_changer(state: str):
+    """
+    State recognition switcher for handling state changes from backend.
+    :param state: new state given from the backend
+    :return: translated state for state_machine
+    """
     switcher = {
         'installation': 'waitingForOvershoot',
         'blinking': 'blinking',
@@ -642,6 +713,12 @@ def _send_event(machine, event_name: str, event_value, current_time: float):
     elevate_serialized = serialize_json(elevate_data) # todo, the serialization is not working yet
     log.debug("ELEVATE RAW: {}".format(json.dumps(elevate_data)))
 
+    # unlock SIM
+    try:
+        machine.sim.sim_auth(machine.pin)
+    except Exception as e:
+        log.exception(str(e))
+        machine.go_to_state('error')
     # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
     try:
         print("++ creating UPP")

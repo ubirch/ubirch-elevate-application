@@ -37,7 +37,7 @@ class ElevateAPI:
     def __init__(self, cfg: dict):
         self.debug = True
         # cfg['debug']
-        self.data_url = cfg['elevateDataUrl'] + cfg['elevateDeviceId']
+        self.data_url = cfg['elevateDataUrl'] + cfg['elevateDeviceId'] + "?reduceHeaders=1"
         self._elevate_headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
