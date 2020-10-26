@@ -37,7 +37,7 @@ class ElevateAPI:
     def __init__(self, cfg: dict):
         self.debug = True
         # cfg['debug']
-        self.data_url = cfg['elevateDataUrl'] + cfg['elevateDeviceId'] + "?reduceHeaders=1"
+        self.data_url = cfg['elevateDataUrl'] + cfg['elevateDeviceId']
         self._elevate_headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
@@ -56,7 +56,7 @@ class ElevateAPI:
         """
         if self.debug:
             print("** sending data message to " + self.data_url)
-        return _send_request(url=self.data_url,
+        return _send_request(url=self.data_url + "?reduceHeaders=1",
                              data=message,
                              headers=self._elevate_headers)
 
@@ -70,7 +70,8 @@ class ElevateAPI:
         if self.debug:
             print("** getting the current state from " + self.data_url)
 
-        r, c = _get_request(url=self.data_url + "?include=properties.firmwareLogLevel,properties.firmwareState", headers=self._elevate_headers)
+        r, c = _get_request(url=self.data_url + "?include=properties.firmwareLogLevel,properties.firmwareState",
+                            headers=self._elevate_headers)
         if r == 200:
             state_info = json.loads(c)
             # print("dump", json.dumps(state_info))
