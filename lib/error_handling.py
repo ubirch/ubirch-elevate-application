@@ -1,3 +1,6 @@
+# TODO , this is not in use anymore.
+#  check if there is something left, which is needed, or remove the file.
+
 import os
 import sys
 import time

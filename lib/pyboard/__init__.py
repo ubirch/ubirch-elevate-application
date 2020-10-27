@@ -28,7 +28,7 @@ class Pytrack(Pycoproc):
         self.voltage = self.read_battery_voltage
 
 
-def get_pyboard(type: str) -> Pyboard:
+def get_pyboard(type: str) -> Pyboard:  # TODO maybe clean up here
     if type == "pysense":
         return Pysense()
     elif type == "pytrack":

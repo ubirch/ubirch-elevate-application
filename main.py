@@ -1,3 +1,6 @@
+# TODO:
+#  check all print statements
+#  adopt README.md
 import utime as time
 
 import logging

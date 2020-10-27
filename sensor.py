@@ -2,6 +2,7 @@ import pyboard
 
 from sensor_config import *
 
+# TODO, simplify the filtering and data
 
 class MovementSensor(object):
 

@@ -502,7 +502,6 @@ class StateMeasuringPaused(State):
     this state is entered, when the threshold of activity was reached.
     Here the activity is transmitted to the backends
     """
-
     def __init__(self):
         super().__init__()
         self._measuring_paused_time = 0
@@ -510,8 +509,6 @@ class StateMeasuringPaused(State):
     @property
     def name(self):
         return 'measuringPaused'
-
-    # send the event to data service and upp to niomon
 
     def enter(self, machine):
         State.enter(self, machine)
@@ -543,40 +540,12 @@ class StateMeasuringPaused(State):
                 machine.go_to_state('waitingForOvershoot')
 
 
-def _log_level(level: str):
-    """
-    Logging level switcher for handling different logging levels from backend.
-    :param level: ne logging level from backend
-    :return: translated logging level for logger
-    """
-    switcher = {
-        'error': logging.ERROR,
-        'warning': logging.WARNING,
-        'info': logging.INFO,
-        'debug': logging.DEBUG
-    }
-    return switcher.get(level, logging.INFO)
-
-
-def _state_changer(state: str):
-    """
-    State recognition switcher for handling state changes from backend.
-    :param state: new state given from the backend
-    :return: translated state for state_machine
-    """
-    switcher = {
-        'installation': 'waitingForOvershoot',
-        'blinking': 'blinking',
-        'sensing': 'waitingForOvershoot',
-        'custom1': 'waitingForOvershoot',
-        'custom2': 'waitingForOvershoot',
-        'custom3': 'waitingForOvershoot'
-    }
-    return switcher.get(state, 'error')
-
-
 class StateInactive(State):
-
+    """
+    Inactive State,
+    at entering, the current state is get from the backend
+    and the waiting interval is increased
+    """
     def __init__(self):
         super().__init__()
         self._inactive_time = 0
@@ -591,7 +560,7 @@ class StateInactive(State):
         machine.breath.set_color(LED_BLUE)
 
         level, state = _get_state(machine)
-        print("LEVEL: ({}) STATE:({})".format(level, state))
+        log.info("new LEVEL: ({}) new STATE:({})".format(level, state))
         self._adjust_level_state(machine, level, state)
         machine.intervalForInactivityEventMs *= machine.ExponentialBackoffFactorForInactivityEvent
         log.debug("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
@@ -612,13 +581,23 @@ class StateInactive(State):
                 machine.go_to_state('inactive')  # todo check if this can be simplified
 
     def _adjust_level_state(self, machine, level, state):
-        log.setLevel(_log_level(level))
-        machine.go_to_state(_state_changer(state))
+        """
+        Adjust the logging level and the current state
+        :param machine: state machine holding this state
+        :param level: new logging level to adjust
+        :param state: new sensor state to adjust
+        """
+        log.setLevel(_log_switcher(level))
+        machine.go_to_state(_state_switcher(state))
 
 
-# stay here for a given time and blink
 class StateBlinking(State):
-
+    """
+    Blinking State is a special state, with a bright and fast led blinking
+    to make the sensor more visible. This state is intended to identify
+    sensors in the field.
+    After some time, the state switches back to inactive.
+    """
     def __init__(self):
         super().__init__()
         self._waiting_time = 0
@@ -639,12 +618,15 @@ class StateBlinking(State):
     def update(self, machine):
         if State.update(self, machine):
             now = time.ticks_ms()
-            if now >= self._waiting_time + 10000:
-                machine.go_to_state('waitingForOvershoot')
+            if now >= self._waiting_time + 10000: # todo set a proper time value here
+                machine.go_to_state('inactive')
 
 
 class StateError(State):
-
+    """
+    Error State, which is entered, whenever a critical error occurs.
+    This state should end with TODO has to be defined.
+    """
     def __init__(self):
         super().__init__()
         self._error_time = 0
@@ -658,7 +640,7 @@ class StateError(State):
         self._error_time = time.ticks_ms()
         machine.breath.set_color(LED_RED)
         machine.intervalForErrorEventMs *= 2
-        if machine.lastError:
+        if machine.lastError:   # TODO currently lastError is not in use.
             log.error("[Core] Last error: {}".format(machine.lastError))
         else:
             log.error("[Core] Unknown error.")
@@ -674,15 +656,22 @@ class StateError(State):
         if State.update(self, machine):
             now = time.ticks_ms()
             if now >= self._error_time + machine.intervalForErrorEventMs:
-                machine.go_to_state('sendingCellularDiagnostics')
+                machine.go_to_state('sendingCellularDiagnostics')  # TODO this might not be the correct state to return to
 
 
 ################################################################################
 
-# Send the data away
 def _send_event(machine, event_name: str, event_value, current_time: float):
+    """
+    # Send the data to elevate and the UPP to ubirch # TODO, make this configurable
+    :param machine: state machine, which provides the connection and the ubirch protocol
+    :param event_name: name of the event to send
+    :param event_value: value of the event to send
+    :param current_time: time variable TODO maybe not necessary
+    :return:
+    """
     print("SENDING")
-    # get the time
+    # get the time TODO, this format is currently not recognized by the backend, maybe simple timestamp is better.
     t = time.gmtime(current_time)  # (1970, 1, 1, 0, 0, 15, 3, 1)
     iso8601_fmt = "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z"  # "2020-08-24T14:23:50Z"
     iso8601_time = iso8601_fmt.format(t[0], t[1], t[2], t[3], t[4], t[5])
@@ -713,7 +702,7 @@ def _send_event(machine, event_name: str, event_value, current_time: float):
     elevate_serialized = serialize_json(elevate_data) # todo, the serialization is not working yet
     log.debug("ELEVATE RAW: {}".format(json.dumps(elevate_data)))
 
-    # unlock SIM
+    # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
     try:
         machine.sim.sim_auth(machine.pin)
     except Exception as e:
@@ -767,6 +756,11 @@ def _send_event(machine, event_name: str, event_value, current_time: float):
 
 
 def _get_state(machine):
+    """
+    Get the current state and log level from the elevate backend
+    :param machine: state machine, providing the connection
+    :return: log level and new state
+    """
     # machine.disable_interrupt()
     print("GET THE STATE")
     level = ""
@@ -791,6 +785,39 @@ def _get_state(machine):
         log.exception(str(e))
     return level, state
 
+
+def _log_switcher(level: str):
+    """
+    Logging level switcher for handling different logging levels from backend.
+    :param level: ne logging level from backend
+    :return: translated logging level for logger
+    """
+    switcher = {
+        'error': logging.ERROR,
+        'warning': logging.WARNING,
+        'info': logging.INFO,
+        'debug': logging.DEBUG
+    }
+    return switcher.get(level, logging.INFO)
+
+
+def _state_switcher(state: str):
+    """
+    State recognition switcher for handling state changes from backend.
+    :param state: new state given from the backend
+    :return: translated state for state_machine
+    """
+    switcher = {
+        'installation': 'waitingForOvershoot',
+        'blinking': 'blinking',
+        'sensing': 'waitingForOvershoot',
+        'custom1': 'waitingForOvershoot',
+        'custom2': 'waitingForOvershoot',
+        'custom3': 'waitingForOvershoot'
+    }
+    return switcher.get(state, 'error')
+
+# TODO cleanup below
 
 # TODO: do this anyway
 COMING_FROM_DEEPSLEEP = (pycom_machine.reset_cause() == pycom_machine.DEEPSLEEP_RESET)

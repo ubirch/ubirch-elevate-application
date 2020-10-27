@@ -70,11 +70,11 @@ class ElevateAPI:
         if self.debug:
             print("** getting the current state from " + self.data_url)
 
-        r, c = _get_request(url=self.data_url + "?include=properties.firmwareLogLevel,properties.firmwareState",
+        r, c = _get_request(url=self.data_url + "?reduceHeaders=1&include=properties.firmwareLogLevel,properties.firmwareState&exclude=_id",
                             headers=self._elevate_headers)
         if r == 200:
             state_info = json.loads(c)
-            # print("dump", json.dumps(state_info))
+            print("dump", json.dumps(state_info))
             if 'properties' in state_info:
                 props = state_info['properties']
                 # print(props)

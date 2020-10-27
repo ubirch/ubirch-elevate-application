@@ -101,8 +101,6 @@ def request(method, url, data=None, json=None, headers={}, stream=None):
     except OSError:
         s.close()
         raise
-    # finally:
-    #     s.close()
 
     resp = Response(s)
     resp.status_code = status

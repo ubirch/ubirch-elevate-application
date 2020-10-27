@@ -12,7 +12,7 @@ from modem import reset_modem
 from network import LTE
 
 
-def mount_sd():
+def mount_sd(): #todo check if this is the right place for this function
     try:
         sd = machine.SD()
         try:  # check if sd is already mounted
@@ -204,7 +204,6 @@ class LedBreath(object):
     according to the time ticks.
     If the breathing does not work for a while, it means the controller is not running
     """
-
     def __init__(self):
         self.period = 5000.0
         self.color = 0xFF00FF

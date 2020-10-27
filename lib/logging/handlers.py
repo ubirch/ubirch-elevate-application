@@ -21,6 +21,7 @@ def get_filesize(fn: str) -> int:
 
 class RotatingFileHandler(Handler):
     """A rotating file handler like RotatingFileHandler.
+    # TODO this should be added to the code to avoid log file overflow.
 
     Compatible with CPythons `logging.handlers.RotatingFileHandler` class.
     """
