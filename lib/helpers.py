@@ -1,6 +1,6 @@
 import math
-import os
-import time
+import uos as os
+import utime as time
 from uuid import UUID
 import sys # todo remove me
 
@@ -11,7 +11,39 @@ from connection import Connection
 from modem import reset_modem
 from network import LTE
 
+########
+# LED color codes
+LED_OFF = 0x000000
 
+# standard brightness: 25% (low-power)
+LED_WHITE = 0x202020  # StateConnecting
+LED_GREEN = 0x002000  # StateMeasuringPaused
+LED_YELLOW = 0x202000  # StateSendingDiagnostics
+LED_RED = 0x200000  # StateError
+LED_PURPLE = 0x200020  # StateWaitingForOvershot
+LED_BLUE = 0x000020  # StateInactive
+LED_TURQUOISE = 0x002020  # StateSendingCellularDiagnostics
+
+# full brightness (for errors etc)
+LED_WHITE_BRIGHT = 0xffffff
+LED_GREEN_BRIGHT = 0x00ff00
+LED_YELLOW_BRIGHT = 0xffff00
+LED_ORANGE_BRIGHT = 0xffa500
+LED_RED_BRIGHT = 0xff0000
+LED_PURPLE_BRIGHT = 0x800080
+LED_BLUE_BRIGHT = 0x0000ff
+LED_TURQUOISE_BRIGHT = 0x40E0D0
+LED_PINK_BRIGHT = 0xFF1493
+
+# error color codes
+COLOR_INET_FAIL = LED_PURPLE_BRIGHT
+COLOR_BACKEND_FAIL = LED_ORANGE_BRIGHT
+COLOR_SIM_FAIL = LED_RED_BRIGHT
+COLOR_CONFIG_FAIL = LED_YELLOW_BRIGHT
+COLOR_MODEM_FAIL = LED_PINK_BRIGHT
+COLOR_UNKNOWN_FAIL = LED_WHITE_BRIGHT
+
+########
 def mount_sd(): #todo check if this is the right place for this function
     try:
         sd = machine.SD()
@@ -94,7 +126,7 @@ def bootstrap(imsi: str, api: ubirch.API) -> str:
     if not 200 <= status_code < 300:
         raise Exception("bootstrapping failed: ({}) {}".format(status_code, str(content)))
 
-    from json import loads
+    from ujson import loads
     info = loads(content)
     pin = info['pin']
 
@@ -188,7 +220,7 @@ def get_upp_payload(upp: bytes) -> bytes:
     elif upp[0] == 0x96 and upp[1] == 0x23:  # chained UPP
         payload_start_idx = 89
     else:
-        from binascii import hexlify
+        from ubinascii import hexlify
         raise Exception("!! can't get payload from {} (not a UPP)".format(hexlify(upp).decode()))
 
     if upp[payload_start_idx - 2] != 0xC4:

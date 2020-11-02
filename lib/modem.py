@@ -1,4 +1,4 @@
-import time
+import utime as time
 
 from network import LTE
 
@@ -69,3 +69,5 @@ def get_imsi(lte: LTE, debug_print=False) -> str:
         return result[0]
 
     raise Exception("getting IMSI failed: {}".format(repr(result)))
+
+

@@ -1,5 +1,5 @@
 import sys
-import time
+import utime as time
 
 import machine
 

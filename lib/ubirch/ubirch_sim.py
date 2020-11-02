@@ -24,7 +24,7 @@
 | limitations under the License.
 """
 
-import time
+import utime as time
 from uuid import UUID
 
 import ubinascii as binascii
@@ -121,7 +121,7 @@ def _decode_tag(encoded: bytes) -> [(int, bytes)]:
     return decoded
 
 
-class SimProtocol:
+class SimProtocol(object):
     MAX_AT_LENGTH = 110
 
     def __init__(self, lte: LTE, at_debug: bool = False, channel: int = None):
@@ -693,3 +693,27 @@ class SimProtocol:
             return self.verify(name, upp, APP_UBIRCH_CHAINED)
         else:
             raise Exception("message is not a UPP")
+
+    def get_signal_quality(self, debug_print=False):
+        print("try to get signal quality")
+        """
+        Get the signal quality of the LTE connection
+        :param debug_print: print output for debug purposes
+        :return:
+        """
+        csq_cmd = "AT+CSQ"
+
+        if self.DEBUG: print("\n>> getting signal quality")
+        self._prepare_AT_session()
+        try:
+            # select SS entry
+            data, code = self._send_at_cmd(csq_cmd)
+        finally:
+            self._finish_AT_session()
+
+        if code == 'OK':
+            response = data[0][5:].split(',')[1]
+            if debug_print: print("\n<<>> " + repr(data))
+            return response[0], response[1]
+
+        raise Exception(code)

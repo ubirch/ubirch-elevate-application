@@ -1,14 +1,14 @@
 """
 from: https://learn.adafruit.com/circuitpython-101-state-machines?view=all#code
 """
-
-import time
+import uos
+import utime as time
 import machine as pycom_machine
 import ubinascii
 from lib.config import *
 from lib.connection import get_connection, NB_IoT
 from lib.elevate_api import ElevateAPI
-from lib.error_handling import *
+from lib.elevate_sim import ElevateSim
 from lib.helpers import *
 from lib.modem import get_imsi
 from network import LTE
@@ -16,38 +16,10 @@ from lib.pyboard import *
 from lib.realtimeclock import enable_time_sync, wait_for_sync
 from sensor import MovementSensor
 from sensor_config import *
-import json
+import ujson as json
 import logging
+import ubirch
 
-LED_OFF = 0x000000
-
-# standard brightness: 25% (low-power)
-LED_WHITE = 0x202020  # StateConnecting
-LED_GREEN = 0x002000  # StateMeasuringPaused
-LED_YELLOW = 0x202000  # StateSendingVersionDiagnostics
-LED_RED = 0x200000  # StateError
-LED_PURPLE = 0x200020  # StateWaitingForOvershot
-LED_BLUE = 0x000020  # StateInactive
-LED_TURQUOISE = 0x002020  # StateSendingCellularDiagnostics
-
-# full brightness (for errors etc)
-LED_WHITE_BRIGHT = 0xffffff
-LED_GREEN_BRIGHT = 0x00ff00
-LED_YELLOW_BRIGHT = 0xffff00
-LED_ORANGE_BRIGHT = 0xffa500
-LED_RED_BRIGHT = 0xff0000
-LED_PURPLE_BRIGHT = 0x800080
-LED_BLUE_BRIGHT = 0x0000ff
-LED_TURQUOISE_BRIGHT = 0x40E0D0
-LED_PINK_BRIGHT = 0xFF1493
-
-# error color codes
-COLOR_INET_FAIL = LED_PURPLE_BRIGHT
-COLOR_BACKEND_FAIL = LED_ORANGE_BRIGHT
-COLOR_SIM_FAIL = LED_RED_BRIGHT
-COLOR_CONFIG_FAIL = LED_YELLOW_BRIGHT
-COLOR_MODEM_FAIL = LED_PINK_BRIGHT
-COLOR_UNKNOWN_FAIL = LED_WHITE_BRIGHT
 
 STANDARD_DURATION = 500
 
@@ -141,9 +113,9 @@ class StateMachine(object):
                 pycom_machine.reset()
 
             try:
-                pin = bootstrap(imsi, self.api)
+                self.pin = bootstrap(imsi, self.api)
                 with open(pin_file, "wb") as f:
-                    f.write(pin.encode())
+                    f.write(self.pin.encode())
             except Exception as e:
                 log.exception(str(e))
                 pycom_machine.reset()
@@ -157,7 +129,7 @@ class StateMachine(object):
         # initialise ubirch SIM protocol
         log.info("++ initializing ubirch SIM protocol")
         try:
-            self.sim = ubirch.SimProtocol(lte=self.lte, at_debug=self.debug)
+            self.sim = ElevateSim(lte=self.lte, at_debug=self.debug)
         except Exception as e:
             log.exception(str(e))
             pycom_machine.reset()
@@ -187,7 +159,7 @@ class StateMachine(object):
 
         # send a X.509 Certificate Signing Request for the public key to the ubirch identity service (once)
         csr_file = "csr_{}_{}.der".format(self.uuid, self.api.env)
-        if csr_file not in os.listdir():
+        if csr_file not in uos.listdir():
             try:
                 self.connection.connect()
             except Exception as e:
@@ -389,7 +361,8 @@ class StateConnecting(State):
             machine.connection.connect()
             enable_time_sync()
             log.info("\twaiting for time sync")
-            wait_for_sync(print_dots=False)
+            wait_for_sync(print_dots=True)
+
         except Exception as e:
             log.exception(str(e))
             pycom_machine.reset() # todo check for alternatives to RESET
@@ -400,10 +373,10 @@ class StateConnecting(State):
     def update(self, machine):
         State.update(self, machine)
         if self._connect(machine):
-            machine.go_to_state('sendingVersionDiagnostics')
+            machine.go_to_state('sendingDiagnostics')
 
 
-class StateSendingVersionDiagnostics(State):
+class StateSendingDiagnostics(State):
     """
     Sending Version Diagnostics to the backend.
     TODO figure out, what to do here
@@ -414,13 +387,22 @@ class StateSendingVersionDiagnostics(State):
 
     @property
     def name(self):
-        return 'sendingVersionDiagnostics'
+        return 'sendingDiagnostics'
 
     def enter(self, machine):
         State.enter(self, machine)
-        # TODO Diagnostics::sendVersionDiagnostics()
         self._version_wait_time = time.ticks_ms()
         machine.breath.set_color(LED_YELLOW)
+
+        rssi, ber = machine.sim.get_signal_quality(machine.debug)
+        cops = machine.sim.get_network_stats(machine.debug)  # TODO this is not yet decyphered
+        event = ({'cellSignalPower': {'value': rssi},
+                  'cellSignalQuality': {'value': ber},
+                  'cellTechnology': {'value': cops},
+                  'hardwareVersion':{'value': '0.9.0'},
+                  'firmwareVersion':{'value': '0.9.1'}})
+
+        _send_event(machine, event, time.time())
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -429,37 +411,6 @@ class StateSendingVersionDiagnostics(State):
         if State.update(self, machine):
             now = time.ticks_ms()
             if now >= self._version_wait_time + STANDARD_DURATION:
-                machine.go_to_state('blinking') # 'sendingCellularDiagnostics')
-                # TODO the go to state has to be changed
-
-
-class StateSendingCellularDiagnostics(State):
-    """
-    Sending Cellular Diagnostics to the backend.
-    todo figure out, how to get cellular diagnostics and transmit them
-    """
-    def __init__(self):
-        super().__init__()
-        self._cellular_wait_time = 0
-
-    @property
-    def name(self):
-        return 'sendingCellularDiagnostics'
-
-    def enter(self, machine):
-        State.enter(self, machine)
-        # TODO 	Diagnostics::sendCellularDiagnostics();   rssi -> AT+CSQ
-        # 		Diagnostics::sendNetworkRegistrationStatus();   AT+COPS?
-        self._cellular_wait_time = time.ticks_ms()
-        machine.breath.set_color(LED_TURQUOISE)
-
-    def exit(self, machine):
-        State.exit(self, machine)
-
-    def update(self, machine):
-        if State.update(self, machine):
-            now = time.ticks_ms()
-            if now >= self._cellular_wait_time + STANDARD_DURATION:
                 machine.go_to_state('waitingForOvershoot')
 
 
@@ -513,12 +464,13 @@ class StateMeasuringPaused(State):
     def enter(self, machine):
         State.enter(self, machine)
         self._measuring_paused_time = time.ticks_ms()
-        machine.timerActivity = time.time()
+        machine.timerActivity = time.time() # todo check this unit
         machine.breath.set_color(LED_GREEN)
         machine.intervalForInactivityEventMs = machine.FirstIntervalForInactivityEventMs
         log.debug("SPEED: {}{}".format(machine.sensor.speed_max, machine.sensor.speed_min))
 
-        _send_event(machine, "speed", machine.speed(), machine.timerActivity)
+        event = ({'isWorking':{'value': True}})
+        _send_event(machine, event, time.time())
 
         # reset the speed values for next time
         machine.sensor.speed_max[0] = 0.0
@@ -562,12 +514,14 @@ class StateInactive(State):
         level, state = _get_state(machine)
         log.info("new LEVEL: ({}) new STATE:({})".format(level, state))
         self._adjust_level_state(machine, level, state)
-        machine.intervalForInactivityEventMs *= machine.ExponentialBackoffFactorForInactivityEvent
+        machine.intervalForInactivityEventMs = \
+            machine.intervalForInactivityEventMs * \
+            machine.ExponentialBackoffFactorForInactivityEvent
         log.debug("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
 
     def exit(self, machine):
         State.exit(self, machine)
-        machine.timerInactivity = time.time()
+        machine.timerInactivity = time.time() # todo check if this is the correct time
 
     def update(self, machine):
         if State.update(self, machine):
@@ -591,6 +545,7 @@ class StateInactive(State):
         machine.go_to_state(_state_switcher(state))
 
 
+# noinspection MicroPythonRequirements
 class StateBlinking(State):
     """
     Blinking State is a special state, with a bright and fast led blinking
@@ -661,45 +616,28 @@ class StateError(State):
 
 ################################################################################
 
-def _send_event(machine, event_name: str, event_value, current_time: float):
+def _send_event(machine, event: dict, current_time: float):
     """
     # Send the data to elevate and the UPP to ubirch # TODO, make this configurable
     :param machine: state machine, which provides the connection and the ubirch protocol
-    :param event_name: name of the event to send
-    :param event_value: value of the event to send
+    :param event: name of the event to send
     :param current_time: time variable TODO maybe not necessary
     :return:
     """
     print("SENDING")
     # get the time TODO, this format is currently not recognized by the backend, maybe simple timestamp is better.
-    t = time.gmtime(current_time)  # (1970, 1, 1, 0, 0, 15, 3, 1)
-    iso8601_fmt = "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z"  # "2020-08-24T14:23:50Z"
-    iso8601_time = iso8601_fmt.format(t[0], t[1], t[2], t[3], t[4], t[5])
+    # t = time.gmtime(current_time)  # (1970, 1, 1, 0, 0, 15, 3, 1)
+    # iso8601_fmt = "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z"  # "2020-08-24T14:23:50Z"
+    # iso8601_time = iso8601_fmt.format(t[0], t[1], t[2], t[3], t[4], t[5])
+
     # make the elevate data package
     elevate_data = {
-        'properties.variables': {
-            'isWorking': {
-                'value': True,
-                'lastActivityOn': iso8601_time
-            },
-        }  # ,
-        # lastActivityOn
-        # lastLogContent
-        # firmwareVersion(String)
-        # hardwareVersion(String)
-        # cellSignalPower(Number)
-        # cellSignalQuality(Number)
-        # cellOperator(String)
-        # cellTechnology(String)
-        # cellGlobalIdentity(String)
-        # cellDeviceIdentity(String)
-        # ping(Number)
-        # totalAvailableMemory(Number)
-        # usedMemory(Number)
-        # batteryCharge(Number)
-        # stateOfCharge(String)
+        'properties.variables': {}
     }
-    elevate_serialized = serialize_json(elevate_data) # todo, the serialization is not working yet
+    elevate_data['properties.variables'].update(event)
+    elevate_data['properties.variables'].update({'ts':{'v': current_time}})
+
+    elevate_serialized = serialize_json(elevate_data)
     log.debug("ELEVATE RAW: {}".format(json.dumps(elevate_data)))
 
     # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
@@ -786,6 +724,23 @@ def _get_state(machine):
     return level, state
 
 
+#         'isWorking'#(Bool) DONE
+#         'lastActivityOn' #(date) todo
+#         'lastLogContent' #(String) todo
+#         'firmwareVersion'# (String) todo currently fixed string
+#         'hardwareVersion'# (String) todo currently fixed string
+#         'cellSignalPower'# (Number) DONE
+#         'cellSignalQuality'# (Number) DONE
+#         'cellOperator'# (String) todo figure out
+#         'cellTechnology'# (String) todo currently COPS
+#         'cellGlobalIdentity'# (String) todo figure out
+#         'cellDeviceIdentity'# (String) todo figure out
+#         'ping'# (Number) todo
+#         'totalAvailableMemory'# (Number) todo
+#         'usedMemory'# (Number) todo
+#         'batteryCharge'# (Number) todo NO BATTERY included
+#         'stateOfCharge'# (String) todo NO BATTERY included
+
 def _log_switcher(level: str):
     """
     Logging level switcher for handling different logging levels from backend.
@@ -830,6 +785,6 @@ if SD_CARD_MOUNTED:
 else:
     print("\tno SD card found")
 
-max_file_size_kb = 10240 if SD_CARD_MOUNTED else 20
-error_handler = ErrorHandler(file_logging_enabled=True, max_file_size_kb=max_file_size_kb,
-                             sd_card=SD_CARD_MOUNTED)
+# max_file_size_kb = 10240 if SD_CARD_MOUNTED else 20
+# error_handler = ErrorHandler(file_logging_enabled=True, max_file_size_kb=max_file_size_kb,
+#                              sd_card=SD_CARD_MOUNTED)

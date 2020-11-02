@@ -9,8 +9,8 @@
 #
 
 import math
-import struct
-import time
+import ustruct as struct
+import utime as time
 
 import ubinascii
 from machine import Pin

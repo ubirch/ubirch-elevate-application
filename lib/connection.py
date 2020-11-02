@@ -1,5 +1,5 @@
 import sys
-import time
+import utime as time
 
 import machine
 from network import LTE
@@ -35,7 +35,7 @@ class NB_IoT(Connection):
         sys.stdout.write("\tattaching to the NB-IoT network")
         # since we disable unsolicited CEREG messages in modem.py, as they interfere with AT communication with the SIM via CSIM commands,
         # we are required to use an attach method that does not require cereg messages, for pycom that is legacyattach=false
-        self.lte.attach( apn=self.apn, legacyattach=False)  # band=self.band,
+        self.lte.attach(apn=self.apn, band=self.band, legacyattach=False)
         i = 0
         while not self.lte.isattached() and i < self.attachtimeout:
             i += 1

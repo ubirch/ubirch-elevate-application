@@ -1,4 +1,4 @@
-import time
+import utime as time
 
 import machine
 from network import WLAN

@@ -53,7 +53,7 @@ def request(method, url, data=None, json=None, headers={}, stream=None):
         port = int(port)
     usocket.dnsserver(1, '8.8.4.4')
     usocket.dnsserver(0, '8.8.8.8')
-    ai = usocket.getaddrinfo(host, port, 0, usocket.SOCK_STREAM)
+    ai = usocket.getaddrinfo(host, port) # todo check if -> is needed, 0, usocket.SOCK_STREAM)
     ai = ai[0]
 
     s = usocket.socket(ai[0], ai[1], ai[2])

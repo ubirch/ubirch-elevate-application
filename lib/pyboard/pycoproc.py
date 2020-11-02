@@ -12,7 +12,7 @@
 
 from machine import Pin
 from machine import I2C
-import time
+import utime as time
 
 import pycom
 from machine import I2C

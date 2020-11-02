@@ -1,6 +1,6 @@
 # https://pypi.org/project/micropython-logging/
 
-import os
+import uos as os
 import sys
 from . import Handler
 
@@ -10,7 +10,7 @@ def try_remove(fn: str) -> None:
     try:
         os.remove(fn)
     except OSError:
-        print("LOG error")
+        print("LOG remove error")
         pass
 
 
@@ -20,9 +20,8 @@ def get_filesize(fn: str) -> int:
 
 
 class RotatingFileHandler(Handler):
-    """A rotating file handler like RotatingFileHandler.
-    # TODO this should be added to the code to avoid log file overflow.
-
+    """
+    A rotating file handler like RotatingFileHandler.
     Compatible with CPythons `logging.handlers.RotatingFileHandler` class.
     """
 
@@ -55,14 +54,14 @@ class RotatingFileHandler(Handler):
                             self.filename + ".{0}".format(i + 1),
                         )
                     except OSError:
-                        print("LOG error")
+                        print("LOG emit error")
                         pass
 
             os.rename(self.filename, self.filename + ".1")
             self._counter = 0
 
         with open(self.filename, "a") as f:
-            print("file opened")
+            # print("file opened")
             f.write(msg + "\n")
 
         self._counter += s_len

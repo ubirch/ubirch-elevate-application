@@ -1,4 +1,4 @@
-import os
+import uos
 
 import ujson as json
 
@@ -49,14 +49,14 @@ def load_config(sd_card_mounted: bool = False) -> dict:
 
     # overwrite default config with user config if there is one
     user_config = "config.json"
-    if user_config in os.listdir():
+    if user_config in uos.listdir():
         with open(user_config, 'r') as c:
             user_cfg = json.load(c)
             cfg.update(user_cfg)
 
     # overwrite existing config with config from sd card if there is one
     sd_config = 'config.txt'
-    if sd_card_mounted and sd_config in os.listdir('/sd'):
+    if sd_card_mounted and sd_config in uos.listdir('/sd'):
         with open('/sd/' + sd_config, 'r') as c:
             api_config = json.load(c)
             cfg.update(api_config)
