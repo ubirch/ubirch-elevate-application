@@ -21,7 +21,7 @@ import logging
 import ubirch
 
 
-STANDARD_DURATION = 500
+STANDARD_DURATION_MS = 500
 
 log = logging.getLogger()
 
@@ -55,122 +55,15 @@ class StateMachine(object):
         self.ExponentialBackoffFactorForInactivityEvent = 2
         self.intervalForInactivityEventMs = self.FirstIntervalForInactivityEventMs
         self.intervalForErrorEventMs = 15000
+        self.intervalForBlinkingMs = 30000
 
         self.timerActivity = 0.0
         self.timerLastActivity = 0.0
         self.timerInactivity = 0.0
 
-        log.info("[Core] Initializing magic... ✨ ")
+        log.info("\033[0;35m[Core] Initializing magic... \033[0m ✨ ")
         log.info("[Core] Hello, I am %s",  ubinascii.hexlify(pycom_machine.unique_id()))
 
-        try:
-            # reset modem on any non-normal loop (modem might be in a strange state)
-            if not COMING_FROM_DEEPSLEEP:
-                log.warning("++ not coming from sleep, resetting modem")
-                reset_modem(self.lte)
-
-            log.info("++ getting IMSI")
-            imsi = get_imsi(self.lte)
-            log.info("IMSI: " + imsi)
-        except Exception as e:
-            log.exception("\tERROR setting up modem (%s)", str(e))
-            while True:
-                pycom_machine.idle()
-
-        # write IMSI to SD card
-        if not COMING_FROM_DEEPSLEEP and SD_CARD_MOUNTED: store_imsi(imsi)
-        # load configuration, blocks in case of failure
-        log.info("++ loading config")
-        try:
-            self.cfg = load_config(sd_card_mounted=SD_CARD_MOUNTED)
-
-            self.debug = self.cfg['debug']  # set debug level
-            # if self.debug: print("\t" + repr(self.cfg))
-
-            self.connection = get_connection(self.lte, self.cfg)  # initialize connection object depending on config
-            self.api = ubirch.API(self.cfg)  # set up API for backend communication
-        except Exception as e:
-            log.exception("\tERROR loading configuration (%s)", str(e))
-            while True:
-                pycom_machine.idle()
-
-        # create an instance of the elevate API, which needs the configuration
-        self.elevate_api = ElevateAPI(self.cfg)
-
-        # configure connection timeouts according to config
-        if isinstance(self.connection, NB_IoT):
-            self.connection.setattachtimeout(self.cfg["nbiot_extended_attach_timeout"])
-            self.connection.setconnecttimeout(self.cfg["nbiot_extended_connect_timeout"])
-
-        # get PIN from flash, or bootstrap from backend and then save PIN to flash
-        pin_file = imsi + ".bin"
-        self.pin = get_pin_from_flash(pin_file, imsi)
-        if self.pin is None:
-            try:
-                self.connection.connect()
-            except Exception as e:
-                log.exception(str(e))
-                pycom_machine.reset()
-
-            try:
-                self.pin = bootstrap(imsi, self.api)
-                with open(pin_file, "wb") as f:
-                    f.write(self.pin.encode())
-            except Exception as e:
-                log.exception(str(e))
-                pycom_machine.reset()
-
-        # disconnect from LTE connection before accessing SIM application
-        # (this is only necessary if we are connected via LTE)
-        if isinstance(self.connection, NB_IoT):
-            log.info("\tdisconnecting")
-            self.connection.disconnect()
-
-        # initialise ubirch SIM protocol
-        log.info("++ initializing ubirch SIM protocol")
-        try:
-            self.sim = ElevateSim(lte=self.lte, at_debug=self.debug)
-        except Exception as e:
-            log.exception(str(e))
-            pycom_machine.reset()
-
-        # unlock SIM
-        try:
-            self.sim.sim_auth(self.pin)
-        except Exception as e:
-            log.exception(str(e))
-            # pycom_machine.reset() # TODO check this again, what to do, if PN is unknown
-            # if PIN is invalid, there is nothing we can do -> block
-            if isinstance(e, ValueError):
-                log.critical("PIN is invalid, can't continue")
-                while True:
-                    wdt.feed()  # avert reset from watchdog   TODO check this, do not want to be stuck here
-                    self.breath.set_color(COLOR_SIM_FAIL)
-            else:
-                pycom_machine.reset()
-
-        # get UUID from SIM
-        self.key_name = "ukey"
-        try:
-            self.uuid = self.sim.get_uuid(self.key_name)
-        except Exception as e:
-            log.exception(str(e))
-        log.info("UUID: %s", str(self.uuid))
-
-        # send a X.509 Certificate Signing Request for the public key to the ubirch identity service (once)
-        csr_file = "csr_{}_{}.der".format(self.uuid, self.api.env)
-        if csr_file not in uos.listdir():
-            try:
-                self.connection.connect()
-            except Exception as e:
-                log.exception(str(e))
-
-            try:
-                csr = submit_csr(self.key_name, self.cfg["CSR_country"], self.cfg["CSR_organization"], self.sim, self.api)
-                with open(csr_file, "wb") as f:
-                    f.write(csr)
-            except Exception as e:
-                log.exception(str(e))
 
     def speed(self):
         """
@@ -248,7 +141,7 @@ class StateMachine(object):
 
     def enable_interrupt(self):
         """
-        Enable the Accelerometer Interrupt for fifo buffer. # TODO currently not in use, mybe unnecessary.
+        Enable the Accelerometer Interrupt for fifo buffer. # TODO currently not in use, maybe unnecessary.
         """
         self.sensor.pysense.accelerometer.restart_fifo()
         self.sensor.pysense.accelerometer.enable_fifo_interrupt(self.sensor.accelerometer_interrupt_cb)
@@ -261,13 +154,14 @@ class StateMachine(object):
 
 
 ################################################################################
-# States
+# States  todo include error handling here
 
 class State(object):
     """
     Abstract Parent State Class.
     """
     def __init__(self):
+        self.enter_timestamp = 0
         pass
 
     @property
@@ -283,6 +177,7 @@ class State(object):
         Enter a specific state. This is called, when a new state is entered.
         :param machine: state machine, which has the state
         """
+        self.enter_timestamp = time.ticks_ms()
         pass
 
     def exit(self, machine):
@@ -305,11 +200,10 @@ class State(object):
 
 class StateInitSystem(State):
     """
-    Initialize the System. # TODO, not really implemented yet, currently not used.
+    Initialize the System.
     """
     def __init__(self):
         super().__init__()
-        self._cellular_wait_time = 0
 
     @property
     def name(self):
@@ -317,19 +211,124 @@ class StateInitSystem(State):
 
     def enter(self, machine):
         State.enter(self, machine)
-        # TODO 	Diagnostics::sendCellularDiagnostics();   rssi -> AT+CSQ
-        # 		Diagnostics::sendNetworkRegistrationStatus();   AT+COPS?
-        self._cellular_wait_time = time.ticks_ms()
         machine.breath.set_color(LED_TURQUOISE)
+
+        try:
+            # reset modem on any non-normal loop (modem might be in a strange state)
+            if not COMING_FROM_DEEPSLEEP:
+                log.warning("++ not coming from sleep, resetting modem")
+                reset_modem(machine.lte)
+
+            log.info("++ getting IMSI")
+            imsi = get_imsi(machine.lte)
+            log.info("IMSI: " + imsi)
+        except Exception as e:
+            log.exception("\tERROR setting up modem (%s)", str(e))  # todo long sleep and then reset.
+            while True:
+                pycom_machine.idle()
+
+        # write IMSI to SD card
+        if not COMING_FROM_DEEPSLEEP and SD_CARD_MOUNTED: store_imsi(imsi)
+        # load configuration, blocks in case of failure
+        log.info("++ loading config")
+        try:
+            machine.cfg = load_config(sd_card_mounted=SD_CARD_MOUNTED)
+
+            machine.debug = machine.cfg['debug']  # set debug level
+            # if machine.debug: print("\t" + repr(machine.cfg))
+
+            machine.connection = get_connection(machine.lte, machine.cfg)  # initialize connection object depending on config
+            machine.api = ubirch.API(machine.cfg)  # set up API for backend communication
+        except Exception as e:
+            log.exception("\tERROR loading configuration (%s)", str(e)) #todo figure out how to behave and not to make a BRICK
+            while True:
+                pycom_machine.idle()
+
+        # create an instance of the elevate API, which needs the configuration
+        machine.elevate_api = ElevateAPI(machine.cfg)
+
+        # configure connection timeouts according to config
+        if isinstance(machine.connection, NB_IoT):
+            machine.connection.setattachtimeout(machine.cfg["nbiot_extended_attach_timeout"])
+            machine.connection.setconnecttimeout(machine.cfg["nbiot_extended_connect_timeout"])
+
+        # get PIN from flash, or bootstrap from backend and then save PIN to flash
+        pin_file = imsi + ".bin"
+        machine.pin = get_pin_from_flash(pin_file, imsi)
+        if machine.pin is None:
+            try:
+                machine.connection.connect()
+            except Exception as e:
+                machine.lastError = str(e)
+                machine.go_to_state('reset')
+
+            try:
+                machine.pin = bootstrap(imsi, machine.api)
+                with open(pin_file, "wb") as f:
+                    f.write(machine.pin.encode())
+            except Exception as e:
+                machine.lastError = str(e)
+                machine.go_to_state('reset')
+
+        # # disconnect from LTE connection before accessing SIM application
+        # # (this is only necessary if we are connected via LTE)
+        # if isinstance(machine.connection, NB_IoT):
+        #     log.info("\tdisconnecting")
+        #     machine.connection.disconnect()  # todo, check the necessity of this
+
+        # initialise ubirch SIM protocol
+        log.info("++ initializing ubirch SIM protocol")
+        try:
+            machine.sim = ElevateSim(lte=machine.lte, at_debug=machine.debug)
+        except Exception as e:
+            machine.lastError = str(e)
+            machine.go_to_state('reset')
+
+        # unlock SIM
+        try:
+            machine.sim.sim_auth(machine.pin)
+        except Exception as e:
+            log.exception(str(e))
+            # pycom_machine.reset() # TODO check this again, what to do, if PN is unknown
+            # if PIN is invalid, there is nothing we can do -> block
+            if isinstance(e, ValueError):
+                log.critical("PIN is invalid, can't continue")
+                while True:
+                    wdt.feed()  # avert reset from watchdog   TODO check this, do not want to be stuck here
+                    machine.breath.set_color(COLOR_SIM_FAIL)
+            else:
+                pycom_machine.reset()
+
+        # get UUID from SIM
+        machine.key_name = "ukey"
+        try:
+            machine.uuid = machine.sim.get_uuid(machine.key_name)
+        except Exception as e:
+            log.exception(str(e))
+        log.info("UUID: %s", str(machine.uuid))
+
+        # send a X.509 Certificate Signing Request for the public key to the ubirch identity service (once)
+        csr_file = "csr_{}_{}.der".format(machine.uuid, machine.api.env)
+        if csr_file not in uos.listdir():
+            try:
+                machine.connection.connect()
+            except Exception as e:
+                log.exception(str(e))
+
+            try:
+                csr = submit_csr(machine.key_name, machine.cfg["CSR_country"], machine.cfg["CSR_organization"], machine.sim, machine.api)
+                with open(csr_file, "wb") as f:
+                    f.write(csr)
+            except Exception as e:
+                log.exception(str(e))
 
     def exit(self, machine):
         State.exit(self, machine)
-        machine.shower_count = 0
 
     def update(self, machine):
         if State.update(self, machine):
             now = time.ticks_ms()
-            if now >= self._cellular_wait_time + STANDARD_DURATION:
+            if now >= self.enter_timestamp + STANDARD_DURATION_MS:
                 machine.go_to_state('connecting')
 
 
@@ -366,7 +365,6 @@ class StateConnecting(State):
         except Exception as e:
             log.exception(str(e))
             pycom_machine.reset() # todo check for alternatives to RESET
-            # error_handler.log(e, COLOR_INET_FAIL, reset=True)  # todo check reset
             return False
         return True
 
@@ -379,11 +377,9 @@ class StateConnecting(State):
 class StateSendingDiagnostics(State):
     """
     Sending Version Diagnostics to the backend.
-    TODO figure out, what to do here
     """
     def __init__(self):
         super().__init__()
-        self._version_wait_time = 0
 
     @property
     def name(self):
@@ -391,7 +387,6 @@ class StateSendingDiagnostics(State):
 
     def enter(self, machine):
         State.enter(self, machine)
-        self._version_wait_time = time.ticks_ms()
         machine.breath.set_color(LED_YELLOW)
 
         rssi, ber = machine.sim.get_signal_quality(machine.debug)
@@ -400,7 +395,8 @@ class StateSendingDiagnostics(State):
                   'cellSignalQuality': {'value': ber},
                   'cellTechnology': {'value': cops},
                   'hardwareVersion':{'value': '0.9.0'},
-                  'firmwareVersion':{'value': '0.9.1'}})
+                  'firmwareVersion':{'value': '0.9.1'},
+                  'resetCause':{'value':RESET_REASON}})
 
         _send_event(machine, event, time.time())
 
@@ -410,18 +406,17 @@ class StateSendingDiagnostics(State):
     def update(self, machine):
         if State.update(self, machine):
             now = time.ticks_ms()
-            if now >= self._version_wait_time + STANDARD_DURATION:
+            if now >= self.enter_timestamp + STANDARD_DURATION_MS:
                 machine.go_to_state('waitingForOvershoot')
 
 
-class StateWaitingForOvershot(State):
+class StateWaitingForOvershoot(State):
     """
     Wait here for acceleration to overshoot the threshold,
     or until waiting time was exceeded.
     """
     def __init__(self):
         super().__init__()
-        self._waiting_time = 0
 
     @property
     def name(self):
@@ -429,7 +424,6 @@ class StateWaitingForOvershot(State):
 
     def enter(self, machine):
         State.enter(self, machine)
-        self._waiting_time = time.ticks_ms()
         machine.breath.set_color(LED_PURPLE)
 
     def exit(self, machine):
@@ -442,9 +436,10 @@ class StateWaitingForOvershot(State):
                 machine.sensor.calc_speed()
                 if machine.speed() > g_THRESHOLD:
                     machine.go_to_state('measuringPaused')
+                    return
 
             now = time.ticks_ms()
-            if now >= self._waiting_time + machine.IntervalForDetectingInactivityMs:
+            if now >= self.enter_timestamp + machine.IntervalForDetectingInactivityMs:
                 machine.go_to_state('inactive')
 
 
@@ -455,7 +450,6 @@ class StateMeasuringPaused(State):
     """
     def __init__(self):
         super().__init__()
-        self._measuring_paused_time = 0
 
     @property
     def name(self):
@@ -463,7 +457,6 @@ class StateMeasuringPaused(State):
 
     def enter(self, machine):
         State.enter(self, machine)
-        self._measuring_paused_time = time.ticks_ms()
         machine.timerActivity = time.time() # todo check this unit
         machine.breath.set_color(LED_GREEN)
         machine.intervalForInactivityEventMs = machine.FirstIntervalForInactivityEventMs
@@ -488,11 +481,11 @@ class StateMeasuringPaused(State):
     def update(self, machine):
         if State.update(self, machine):
             now = time.ticks_ms()
-            if now >= self._measuring_paused_time + machine.OvershotDetectionPauseIntervalMs:
+            if now >= self.enter_timestamp + machine.OvershotDetectionPauseIntervalMs:
                 machine.go_to_state('waitingForOvershoot')
 
 
-class StateInactive(State):
+class StateInactive(State):  # todo check what happens in original code
     """
     Inactive State,
     at entering, the current state is get from the backend
@@ -500,7 +493,8 @@ class StateInactive(State):
     """
     def __init__(self):
         super().__init__()
-        self._inactive_time = 0
+        self.new_log_level = ""
+        self.new_state = ""
 
     @property
     def name(self):
@@ -508,15 +502,14 @@ class StateInactive(State):
 
     def enter(self, machine):
         State.enter(self, machine)
-        self._inactive_time = time.ticks_ms()
         machine.breath.set_color(LED_BLUE)
 
-        level, state = _get_state(machine)
-        log.info("new LEVEL: ({}) new STATE:({})".format(level, state))
-        self._adjust_level_state(machine, level, state)
         machine.intervalForInactivityEventMs = \
             machine.intervalForInactivityEventMs * \
             machine.ExponentialBackoffFactorForInactivityEvent
+
+        self.new_log_level, self.new_state = _get_state_from_backend(machine)
+        log.info("new LEVEL: ({}) new STATE:({})".format(self.new_log_level, self.new_state))
         log.debug("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
 
     def exit(self, machine):
@@ -529,10 +522,14 @@ class StateInactive(State):
                 machine.sensor.calc_speed()
                 if machine.speed() > g_THRESHOLD:
                     machine.go_to_state('measuringPaused')
+                    return
 
             now = time.ticks_ms()
-            if now >= self._inactive_time + machine.intervalForInactivityEventMs:
+            if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
                 machine.go_to_state('inactive')  # todo check if this can be simplified
+                return
+
+            self._adjust_level_state(machine, self.new_log_level, self.new_state)
 
     def _adjust_level_state(self, machine, level, state):
         """
@@ -545,7 +542,6 @@ class StateInactive(State):
         machine.go_to_state(_state_switcher(state))
 
 
-# noinspection MicroPythonRequirements
 class StateBlinking(State):
     """
     Blinking State is a special state, with a bright and fast led blinking
@@ -555,7 +551,6 @@ class StateBlinking(State):
     """
     def __init__(self):
         super().__init__()
-        self._waiting_time = 0
 
     @property
     def name(self):
@@ -563,7 +558,6 @@ class StateBlinking(State):
 
     def enter(self, machine):
         State.enter(self, machine)
-        self._waiting_time = time.ticks_ms()
         machine.breath.set_blinking()
 
     def exit(self, machine):
@@ -573,18 +567,17 @@ class StateBlinking(State):
     def update(self, machine):
         if State.update(self, machine):
             now = time.ticks_ms()
-            if now >= self._waiting_time + 10000: # todo set a proper time value here
-                machine.go_to_state('inactive')
+            if now >= self.enter_timestamp + machine.intervalForBlinkingMs:
+                machine.go_to_state('inactive')  # this is neccessary to fetch a new state from backend
 
 
 class StateError(State):
     """
     Error State, which is entered, whenever a critical error occurs.
-    This state should end with TODO has to be defined.
+    This state should end with a reset of the complete system
     """
     def __init__(self):
         super().__init__()
-        self._error_time = 0
 
     @property
     def name(self):
@@ -592,43 +585,37 @@ class StateError(State):
 
     def enter(self, machine):
         State.enter(self, machine)
-        self._error_time = time.ticks_ms()
         machine.breath.set_color(LED_RED)
-        machine.intervalForErrorEventMs *= 2
-        if machine.lastError:   # TODO currently lastError is not in use.
+
+        if machine.lastError:
             log.error("[Core] Last error: {}".format(machine.lastError))
         else:
             log.error("[Core] Unknown error.")
         
         machine.sim.deinit()
         pycom_machine.reset()
+        # todo maybe try to send the error to backend, but only once, wait for long time?
 
     def exit(self, machine):
-        State.exit(self, machine)
-        machine.lastError = None
+        """ This is intentionally left empty, because this point should never be entered"""
+        pass
 
     def update(self, machine):
-        if State.update(self, machine):
-            now = time.ticks_ms()
-            if now >= self._error_time + machine.intervalForErrorEventMs:
-                machine.go_to_state('sendingCellularDiagnostics')  # TODO this might not be the correct state to return to
+        """ This is intentionally left empty, because this point should never be entered"""
+        pass
 
 
 ################################################################################
 
-def _send_event(machine, event: dict, current_time: float):
+def _send_event(machine, event: dict, current_time: float):    # todo handle errors differently
     """
     # Send the data to elevate and the UPP to ubirch # TODO, make this configurable
     :param machine: state machine, which provides the connection and the ubirch protocol
     :param event: name of the event to send
-    :param current_time: time variable TODO maybe not necessary
+    :param current_time: time variable
     :return:
     """
     print("SENDING")
-    # get the time TODO, this format is currently not recognized by the backend, maybe simple timestamp is better.
-    # t = time.gmtime(current_time)  # (1970, 1, 1, 0, 0, 15, 3, 1)
-    # iso8601_fmt = "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z"  # "2020-08-24T14:23:50Z"
-    # iso8601_time = iso8601_fmt.format(t[0], t[1], t[2], t[3], t[4], t[5])
 
     # make the elevate data package
     elevate_data = {
@@ -644,16 +631,16 @@ def _send_event(machine, event: dict, current_time: float):
     try:
         machine.sim.sim_auth(machine.pin)
     except Exception as e:
-        log.exception(str(e))
-        machine.go_to_state('error')
+        machine.lastError = str(e)
+        machine.go_to_state('reset')
     # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
     try:
         print("++ creating UPP")
         upp = machine.sim.message_chained(machine.key_name, elevate_serialized, hash_before_sign=True)
         print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
     except Exception as e:
-        log.exception(str(e))
-        machine.go_to_state('error')
+        machine.lastError = str(e)
+        machine.go_to_state('reset')
 
     machine.connection.connect()
 
@@ -666,8 +653,8 @@ def _send_event(machine, event: dict, current_time: float):
                                                      json.dumps(elevate_data))
             log.debug("RESPONSE: {}".format(content))
         except Exception as e:
-            log.exception(str(e))
-            machine.go_to_state('error')
+            machine.lastError = str(e)
+            machine.go_to_state('reset')
 
         # send UPP to the ubirch authentication service to be anchored to the blockchain
         print("++ sending UPP")
@@ -675,10 +662,8 @@ def _send_event(machine, event: dict, current_time: float):
             status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                      machine.api.send_upp, machine.uuid, upp)
         except Exception as e:
-            log.exception(str(e))
-            machine.go_to_state('error')
-            # pycom_machine.reset()
-
+            machine.lastError = str(e)
+            machine.go_to_state('reset')
 
         # communication worked in general, now check server response
         if not 200 <= status_code < 300:
@@ -686,14 +671,13 @@ def _send_event(machine, event: dict, current_time: float):
                                                                            ubinascii.hexlify(content).decode()))
     except Exception as e:
         log.exception(str(e))
-#     print("T:{} V:{}".format(type(content), repr(content)))
     try:
         log.debug("NIOMON:({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
     except Exception as e:
         log.exception(repr(e))
 
 
-def _get_state(machine):
+def _get_state_from_backend(machine):
     """
     Get the current state and log level from the elevate backend
     :param machine: state machine, providing the connection
@@ -738,8 +722,8 @@ def _get_state(machine):
 #         'ping'# (Number) todo
 #         'totalAvailableMemory'# (Number) todo
 #         'usedMemory'# (Number) todo
-#         'batteryCharge'# (Number) todo NO BATTERY included
-#         'stateOfCharge'# (String) todo NO BATTERY included
+#         'lastError' # (string)
+#         'resetCause' # (string) DONE
 
 def _log_switcher(level: str):
     """
@@ -772,10 +756,30 @@ def _state_switcher(state: str):
     }
     return switcher.get(state, 'error')
 
-# TODO cleanup below
 
-# TODO: do this anyway
-COMING_FROM_DEEPSLEEP = (pycom_machine.reset_cause() == pycom_machine.DEEPSLEEP_RESET)
+def _reset_cause_switcher(reset_cause: int):
+    """
+    Reset cause switcher for translating the reset cause into readable string.
+    :param state: new state given from the backend
+    :return: translated state for state_machine
+    """
+    switcher = {
+        machine.PWRON_RESET: 'Power On',
+        machine.HARD_RESET: 'Hard',
+        machine.WDT_RESET: 'Watchdog',
+        machine.DEEPSLEEP_RESET: 'Deepsleep',
+        machine.SOFT_RESET: 'Soft',
+        machine.BROWN_OUT_RESET: 'Brown Out'
+    }
+    return switcher.get(reset_cause, 'Unknown')
+
+
+# todo find a good place for these functions
+RESET_REASON = _reset_cause_switcher(pycom_machine.reset_cause())
+if RESET_REASON == 'Deepsleep':
+    COMING_FROM_DEEPSLEEP = True
+else:
+    COMING_FROM_DEEPSLEEP = False
 
 # mount SD card if there is one
 print("++ mounting SD")
@@ -785,6 +789,3 @@ if SD_CARD_MOUNTED:
 else:
     print("\tno SD card found")
 
-# max_file_size_kb = 10240 if SD_CARD_MOUNTED else 20
-# error_handler = ErrorHandler(file_logging_enabled=True, max_file_size_kb=max_file_size_kb,
-#                              sd_card=SD_CARD_MOUNTED)

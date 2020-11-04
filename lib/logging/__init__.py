@@ -12,11 +12,11 @@ DEBUG    = 10
 NOTSET   = 0
 
 _level_dict = {
-    CRITICAL: "CRITICAL",
-    ERROR: "ERROR",
-    WARNING: "WARNING",
-    INFO: "INFO",
-    DEBUG: "DEBUG",
+    CRITICAL: "\033[1;31mCRITICAL",
+    ERROR: "\033[0;31mERROR",
+    WARNING: "\033[0;33mWARNING",
+    INFO: "\033[0;32mINFO",
+    DEBUG: "\033[0;36mDEBUG",
 }
 
 
@@ -127,7 +127,7 @@ class Handler:
 class StreamHandler(Handler):
     def __init__(self, stream=None):
         self._stream = stream or sys.stderr
-        self.terminator = "\n"
+        self.terminator = "\033[0m\n"
         self.formatter = Formatter()
 
     def emit(self, record):

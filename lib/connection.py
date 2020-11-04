@@ -7,7 +7,7 @@ from network import LTE
 
 class Connection:
 
-    def connect(self):
+    def connect(self): # todo rename 'ensure connection'
         raise NotImplementedError
 
     def isconnected(self) -> bool:

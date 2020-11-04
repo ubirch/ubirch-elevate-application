@@ -2,7 +2,7 @@ import math
 import uos as os
 import utime as time
 from uuid import UUID
-import sys # todo remove me
+# import sys # todo remove me
 
 import machine
 import pycom
@@ -20,7 +20,7 @@ LED_WHITE = 0x202020  # StateConnecting
 LED_GREEN = 0x002000  # StateMeasuringPaused
 LED_YELLOW = 0x202000  # StateSendingDiagnostics
 LED_RED = 0x200000  # StateError
-LED_PURPLE = 0x200020  # StateWaitingForOvershot
+LED_PURPLE = 0x200020  # StateWaitingForOvershoot
 LED_BLUE = 0x000020  # StateInactive
 LED_TURQUOISE = 0x002020  # StateSendingCellularDiagnostics
 

@@ -15,7 +15,7 @@ class MovementSensor(object):
         self.speed_filtered_smooth = []
         self.speed_max = [0.0, 0.0, 0.0]
         self.speed_min = [0.0, 0.0, 0.0]
-        self.trigger = False
+        self.trigger = False        # todo rename this variable to indicate, what happens
         self.overshoot = False
         self.alpha = g_ALPHA
         self.globals_init()

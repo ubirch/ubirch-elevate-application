@@ -40,7 +40,7 @@ FMT = "{\'t\':\'%(asctime)s\'," \
 #       "\'n\':\'%(name)s\'," \
 fileHandler = RotatingFileHandler(filename="/flash/my_log.txt", maxBytes=16384, backupCount=4)
 fileHandler.setFormatter(logging.Formatter(fmt=FMT))
-# streamHandler = logging.StreamHandler(sys.stdout)
+
 logging.basicConfig(level=logging.DEBUG,
                     format=FMT)
 log = logging.getLogger()
@@ -57,22 +57,27 @@ class Main:
 
         # create the root controller as a state machine and add all the necessary states
         self.root_controller = StateMachine()
+        self.root_controller.add_state(StateInitSystem())
         self.root_controller.add_state(StateConnecting())
         self.root_controller.add_state(StateSendingDiagnostics())
-        self.root_controller.add_state(StateWaitingForOvershot())
+        self.root_controller.add_state(StateWaitingForOvershoot())
         self.root_controller.add_state(StateMeasuringPaused())
         self.root_controller.add_state(StateInactive())
         self.root_controller.add_state(StateBlinking())
         self.root_controller.add_state(StateError())
         # start with the connecting state
-        self.root_controller.go_to_state('connecting')
+        self.root_controller.go_to_state('initSystem')
 
     def read_loop(self):
         while True:
-            self.root_controller.update()
-            time.sleep_ms(10)
-            # print(micropython.mem_info())
-            wdt.feed()
+            try:
+                self.root_controller.update()
+                time.sleep_ms(10)
+                # print(micropython.mem_info())
+                wdt.feed()
+            except Exception as e:
+                print("\r\n\n\n\033[1;31mMAIN ERROR CAUGHT {}\033[0m".format(repr(e)))
+                time.sleep(2)
 
 
 main = Main()
