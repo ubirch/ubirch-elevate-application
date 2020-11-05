@@ -76,8 +76,8 @@ class Main:
                 # print(micropython.mem_info())
                 wdt.feed()
             except Exception as e:
-                print("\r\n\n\n\033[1;31mMAIN ERROR CAUGHT {}\033[0m".format(repr(e)))
-                time.sleep(2)
+                print("\r\n\n\n\033[1;31mMAIN ERROR CAUGHT:  {}\033[0m\r\n\n\n".format(repr(e)))
+                time.sleep(30)
 
 
 main = Main()

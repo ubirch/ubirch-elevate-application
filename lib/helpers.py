@@ -11,6 +11,7 @@ from connection import Connection
 from modem import reset_modem
 from network import LTE
 
+
 ########
 # LED color codes
 LED_OFF = 0x000000
@@ -42,6 +43,7 @@ COLOR_SIM_FAIL = LED_RED_BRIGHT
 COLOR_CONFIG_FAIL = LED_YELLOW_BRIGHT
 COLOR_MODEM_FAIL = LED_PINK_BRIGHT
 COLOR_UNKNOWN_FAIL = LED_WHITE_BRIGHT
+
 
 ########
 def mount_sd(): #todo check if this is the right place for this function
