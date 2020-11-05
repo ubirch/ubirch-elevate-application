@@ -78,6 +78,8 @@ class Main:
             except Exception as e:
                 print("\r\n\n\n\033[1;31mMAIN ERROR CAUGHT:  {}\033[0m\r\n\n\n".format(repr(e)))
                 time.sleep(30)
+                machine.reset()
+
 
 
 main = Main()
