@@ -650,27 +650,23 @@ def _get_state_from_backend(machine):
     :return: log level and new state
     """
     # machine.disable_interrupt()
-    print("GET THE STATE")
     level = ""
     state = ""
     machine.connection.connect()
 
     # send data message to data service, with reconnects/modem resets if necessary
     try:
-        log.debug("++ getting elevate state")
-        try:
-            status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                          machine.elevate_api.get_state, machine.uuid, '')
-            log.debug("ELEVATE: {} {}".format(level, state))
-        except Exception as e:
-            log.exception(str(e))
-            machine.go_to_state('error')
-            # pycom_machine.reset()
-            # communication worked in general, now check server response
-            if not 200 <= status_code < 300:
-                raise Exception("backend (ELEVATE) returned error: ({})".format(status_code))
+        status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
+                                                        machine.elevate_api.get_state, machine.uuid, '')
+        log.debug("Elevate backend returned log level: {}, state: {}".format(level, state))
     except Exception as e:
         log.exception(str(e))
+        machine.go_to_state('error')
+        # pycom_machine.reset()
+        # communication worked in general, now check server response
+        if not 200 <= status_code < 300:
+            log.error("Elevate backend returned HTTP error code {}".format(status_code))
+
     return level, state
 
 
