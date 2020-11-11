@@ -381,12 +381,12 @@ class StateSendingDiagnostics(State):
 
         rssi, ber = machine.sim.get_signal_quality(machine.debug)
         cops = machine.sim.get_network_stats(machine.debug)  # TODO this is not yet decyphered
-        event = ({'cellSignalPower': {'value': rssi},
-                  'cellSignalQuality': {'value': ber},
-                  'cellTechnology': {'value': cops},
-                  'hardwareVersion':{'value': '0.9.0'},
-                  'firmwareVersion':{'value': '0.9.1'},
-                  'resetCause':{'value':RESET_REASON}})
+        event = ({'properties.variables.cellSignalPower': {'value': rssi},
+                  'properties.variables.cellSignalQuality': {'value': ber},
+                  'properties.variables.cellTechnology': {'value': cops},
+                  'properties.variables.hardwareVersion':{'value': '0.9.0'},
+                  'properties.variables.firmwareVersion':{'value': '0.9.1'},
+                  'properties.variables.resetCause':{'value':RESET_REASON}})
 
         _send_event(machine, event, time.time())
 
@@ -424,6 +424,7 @@ class StateWaitingForOvershoot(State):
 
     def update(self, machine):
         if State.update(self, machine):
+            machine.sensor.poll_sensors()
             if machine.sensor.overshoot:
                 machine.go_to_state('measuringPaused')
                 return
@@ -452,7 +453,11 @@ class StateMeasuringPaused(State):
         machine.timerActivity = time.time() # todo check this unit
         machine.breath.set_color(LED_GREEN)
         machine.intervalForInactivityEventMs = machine.FirstIntervalForInactivityEventMs
-        event = ({ 'isWorking': { 'value': True }})
+        event = ({
+            'properties.variables.isWorking': { 'value': True },
+            'properties.variables.altitude': { 'value': machine.sensor.altitude },
+            'properties.variables.temperature': { 'value': machine.sensor.temperature }
+        })
         _send_event(machine, event, time.time())
 
 
@@ -463,6 +468,7 @@ class StateMeasuringPaused(State):
 
     def update(self, machine):
         if State.update(self, machine):
+            machine.sensor.poll_sensors()
             now = time.ticks_ms()
             if now >= self.enter_timestamp + machine.OvershotDetectionPauseIntervalMs:
                 machine.go_to_state('waitingForOvershoot')
@@ -490,7 +496,11 @@ class StateInactive(State):  # todo check what happens in original code
         machine.intervalForInactivityEventMs = \
             machine.intervalForInactivityEventMs * \
             machine.ExponentialBackoffFactorForInactivityEvent
-
+        event = ({
+            'properties.variables.altitude': { 'value': machine.sensor.altitude },
+            'properties.variables.temperature': { 'value': machine.sensor.temperature }
+        })
+        _send_event(machine, event, time.time())
         self.new_log_level, self.new_state = _get_state_from_backend(machine)
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
@@ -501,6 +511,7 @@ class StateInactive(State):  # todo check what happens in original code
 
     def update(self, machine):
         if State.update(self, machine):
+            machine.sensor.poll_sensors()
             if machine.sensor.overshoot:
                 machine.go_to_state('measuringPaused')
                 return
@@ -599,12 +610,9 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
     """
 
     # make the elevate data package
-    elevate_data = {
-        'properties.variables': event,
-        'ts': {'v': current_time},
-    }
-    elevate_serialized = serialize_json(elevate_data)
-    log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(elevate_data)))
+    event.update({ 'properties.variables.ts': { 'v': current_time } })
+    elevate_serialized = serialize_json(event)
+    log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
 
     try:
         # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
@@ -620,7 +628,7 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
         # send data message to data service, with reconnects/modem resets if necessary
         status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                     machine.elevate_api.send_data, machine.uuid,
-                                                    json.dumps(elevate_data))
+                                                    json.dumps(event))
         log.debug("RESPONSE: {}".format(content))
 
         # send UPP to the ubirch authentication service to be anchored to the blockchain

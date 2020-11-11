@@ -14,6 +14,8 @@ class MovementSensor(object):
         self.speed_filtered_smooth = 0.0
         self.speed_min = 0.0
         self.speed_max = 0.0
+        self.altitude = 0.0
+        self.temperature = 0.0
 
         self.active = False
         self.overshoot = False
@@ -53,16 +55,20 @@ class MovementSensor(object):
         self.active = True
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb)
 
-        print("┌---------------------------------------┬---------------------------------------------------------┬---------┐")
-        print("| acceleration                          |  speed (estimated)                                      | time    |")
-        print("| raw      smooth   w/o DC    smooth    |  raw        w/o DC     smooth     min        max        |         |")
-        print("├---------------------------------------┼---------------------------------------------------------┼---------┤")
-        print("|                                       |                                                         |         |")
-        print("└---------------------------------------┴---------------------------------------------------------┴---------┘")
+        print("┌---------------------------------------┬---------------------------------------------------------┬---------┬--------┬--------┐")
+        print("| acceleration                          |  speed (estimated)                                      | time    | alt    | temp   |")
+        print("| raw      smooth   w/o DC    smooth    |  raw        w/o DC     smooth     min        max        |         |        |        |")
+        print("├---------------------------------------┼---------------------------------------------------------┼---------┼--------┼--------┤")
+        print("|                                       |                                                         |         |        |        |")
+        print("└---------------------------------------┴---------------------------------------------------------┴---------┴--------┴--------┘")
 
     def stop(self):
         self.active = False
         self.pysense.accelerometer.enable_fifo_interrupt(handler=None)
+
+    def poll_sensors(self):
+        self.altitude = self.pysense.altimeter.altitude()
+        self.temperature = self.pysense.humidity.temperature()
 
     # The accelerometer interrupt callback is triggered, when the fifo of the accelerometer is full.
     def accelerometer_interrupt_cb(self, pin):
@@ -81,7 +87,7 @@ class MovementSensor(object):
             return
         self.last_print_ms = now
         print("\r", end="")
-        print("\033[s\033[2A│ %+.3fg  %+.3fg  %+.3fg  %+.3fg    │  %+.3fm/s  %+.3fm/s  %+.3fm/s  %+.3fm/s  %+.3fm/s  │ %.1fs  \033[u" % (
+        print("\033[s\033[2A│ %+.3fg  %+.3fg  %+.3fg  %+.3fg    │  %+.3fm/s  %+.3fm/s  %+.3fm/s  %+.3fm/s  %+.3fm/s  │ %6.1fs | %5.1fm | %3.1f°C  \033[u" % (
             self.accel,
             self.accel_smooth,
             self.accel_filtered,
@@ -91,7 +97,9 @@ class MovementSensor(object):
             self.speed_filtered_smooth,
             self.speed_min,
             self.speed_max,
-            0.001 * (time.ticks_ms() - self.last_start_ms)
+            0.001 * (time.ticks_ms() - self.last_start_ms),
+            self.altitude,
+            self.temperature,
         ), end="")
 
     def process_next_sample(self, accel_xyz_tuple):
