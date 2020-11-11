@@ -102,7 +102,7 @@ def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_f
                     conn.disconnect()
                     conn.connect()
                 try:
-                    print("\tsending...")
+                    # print("\tsending...")
                     return api_function(uuid, data)
                 except Exception as e:
                     # TODO: log/print exception?

@@ -509,7 +509,7 @@ class StateInactive(State):  # todo check what happens in original code
             machine.ExponentialBackoffFactorForInactivityEvent
 
         self.new_log_level, self.new_state = _get_state_from_backend(machine)
-        log.info("new LEVEL: ({}) new STATE:({})".format(self.new_log_level, self.new_state))
+        log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
 
     def exit(self, machine):
@@ -615,7 +615,6 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
     :param current_time: time variable
     :return:
     """
-    print("SENDING")
 
     # make the elevate data package
     elevate_data = {
@@ -625,7 +624,7 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
     elevate_data['properties.variables'].update({'ts':{'v': current_time}})
 
     elevate_serialized = serialize_json(elevate_data)
-    log.debug("ELEVATE RAW: {}".format(json.dumps(elevate_data)))
+    log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(elevate_data)))
 
     # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
     try:
