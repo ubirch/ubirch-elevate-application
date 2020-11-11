@@ -429,7 +429,7 @@ class StateWaitingForOvershoot(State):
                 return
 
             now = time.ticks_ms()
-            if now >= self.enter_timestamp + machine.IntervalForDetectingInactivityMs:
+            if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
                 machine.go_to_state('inactive')
                 return
 
