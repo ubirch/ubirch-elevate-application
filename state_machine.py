@@ -108,7 +108,12 @@ class StateMachine(object):
         """
         if self.state:
             # print('Updating %s' % (self.state.name))
-            self.state.update(self)
+            try:
+                self.state.update(self)
+            except Exception as e:
+                log.exception('Uncaught exception while processing state %s: %s', self.state, str(e))
+                self.lastError = str(e)
+                self.go_to_state('error')
 
     # When pausing, don't exit the state
     def pause(self):
