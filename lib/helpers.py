@@ -1,3 +1,4 @@
+import sys
 import math
 import uos as os
 import utime as time
