@@ -15,11 +15,9 @@ from network import LTE
 from lib.pyboard import *
 from lib.realtimeclock import enable_time_sync, wait_for_sync
 from sensor import MovementSensor
-from sensor_config import *
 import ujson as json
 import logging
 import ubirch
-
 
 STANDARD_DURATION_MS = 500
 
@@ -64,22 +62,6 @@ class StateMachine(object):
         log.info("\033[0;35m[Core] Initializing magic... \033[0m ✨ ")
         log.info("[Core] Hello, I am %s",  ubinascii.hexlify(pycom_machine.unique_id()))
 
-
-    def speed(self):
-        """
-        Calculate th maximum absolute speed value from current sensor values,
-        over all axis.
-        :return: the maximum value of the currently measured speed.
-        """
-        max_speed = 0.0
-        i = 0
-        while i < 3:
-            if self.sensor.speed_max[i] > max_speed:
-                max_speed = self.sensor.speed_max[i]
-            if math.fabs(self.sensor.speed_min[i]) > max_speed:
-                max_speed = math.fabs(self.sensor.speed_min[i])
-            i += 1
-        return max_speed
 
     def add_state(self, state):
         """
@@ -433,18 +415,18 @@ class StateWaitingForOvershoot(State):
     def enter(self, machine):
         State.enter(self, machine)
         machine.breath.set_color(LED_PURPLE)
+        machine.sensor.start()
 
     def exit(self, machine):
+        machine.sensor.stop()
         State.exit(self, machine)
         machine.timerInactivity = time.time()
 
     def update(self, machine):
         if State.update(self, machine):
-            if machine.sensor.trigger:
-                machine.sensor.calc_speed()
-                if machine.speed() > g_THRESHOLD:
-                    machine.go_to_state('measuringPaused')
-                    return
+            if machine.sensor.overshoot:
+                machine.go_to_state('measuringPaused')
+                return
 
             now = time.ticks_ms()
             if now >= self.enter_timestamp + machine.IntervalForDetectingInactivityMs:
@@ -466,21 +448,13 @@ class StateMeasuringPaused(State):
 
     def enter(self, machine):
         State.enter(self, machine)
+        log.info("Recognized an elevator journey with v ~= %+.3f m/s %s", machine.sensor.speed_filtered_smooth, machine.sensor.direction)
         machine.timerActivity = time.time() # todo check this unit
         machine.breath.set_color(LED_GREEN)
         machine.intervalForInactivityEventMs = machine.FirstIntervalForInactivityEventMs
-        log.debug("SPEED: {}{}".format(machine.sensor.speed_max, machine.sensor.speed_min))
-
-        event = ({'isWorking':{'value': True}})
+        event = ({ 'isWorking': { 'value': True }})
         _send_event(machine, event, time.time())
 
-        # reset the speed values for next time
-        machine.sensor.speed_max[0] = 0.0
-        machine.sensor.speed_max[1] = 0.0
-        machine.sensor.speed_max[2] = 0.0
-        machine.sensor.speed_min[0] = 0.0
-        machine.sensor.speed_min[1] = 0.0
-        machine.sensor.speed_min[2] = 0.0
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -527,11 +501,9 @@ class StateInactive(State):  # todo check what happens in original code
 
     def update(self, machine):
         if State.update(self, machine):
-            if machine.sensor.trigger:
-                machine.sensor.calc_speed()
-                if machine.speed() > g_THRESHOLD:
-                    machine.go_to_state('measuringPaused')
-                    return
+            if machine.sensor.overshoot:
+                machine.go_to_state('measuringPaused')
+                return
 
             now = time.ticks_ms()
             if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
@@ -600,7 +572,8 @@ class StateError(State):
             log.error("[Core] Last error: {}".format(machine.lastError))
         else:
             log.error("[Core] Unknown error.")
-        
+
+        machine.sensor.stop()
         machine.sim.deinit()
         pycom_machine.reset()
         # todo maybe try to send the error to backend, but only once, wait for long time?
