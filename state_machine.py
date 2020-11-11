@@ -261,6 +261,7 @@ class StateInitSystem(State):
             except Exception as e:
                 machine.lastError = str(e)
                 machine.go_to_state('reset')
+                return
 
             try:
                 machine.pin = bootstrap(imsi, machine.api)
@@ -269,6 +270,7 @@ class StateInitSystem(State):
             except Exception as e:
                 machine.lastError = str(e)
                 machine.go_to_state('reset')
+                return
 
         # # disconnect from LTE connection before accessing SIM application
         # # (this is only necessary if we are connected via LTE)
@@ -283,6 +285,7 @@ class StateInitSystem(State):
         except Exception as e:
             machine.lastError = str(e)
             machine.go_to_state('reset')
+            return
 
         # unlock SIM
         try:
@@ -441,6 +444,7 @@ class StateWaitingForOvershoot(State):
             now = time.ticks_ms()
             if now >= self.enter_timestamp + machine.IntervalForDetectingInactivityMs:
                 machine.go_to_state('inactive')
+                return
 
 
 class StateMeasuringPaused(State):
