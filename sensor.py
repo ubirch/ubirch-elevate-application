@@ -52,19 +52,17 @@ class MovementSensor(object):
         self.pysense.accelerometer.setup_fifo()
         self.active = True
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb)
-        print("interrupt handling enabled\n")
 
         print("┌---------------------------------------┬---------------------------------------------------------┬---------┐")
-        print("│ acceleration                          │  speed (estimated)                                      │ time    │")
-        print("│ raw      smooth   w/o DC    smooth    │  raw        w/o DC     smooth     min        max        │         │")
+        print("| acceleration                          |  speed (estimated)                                      | time    |")
+        print("| raw      smooth   w/o DC    smooth    |  raw        w/o DC     smooth     min        max        |         |")
         print("├---------------------------------------┼---------------------------------------------------------┼---------┤")
-        print("│                                       │                                                         │         │")
+        print("|                                       |                                                         |         |")
         print("└---------------------------------------┴---------------------------------------------------------┴---------┘")
 
     def stop(self):
         self.active = False
         self.pysense.accelerometer.enable_fifo_interrupt(handler=None)
-        print("interrupt handling disabled")
 
     # The accelerometer interrupt callback is triggered, when the fifo of the accelerometer is full.
     def accelerometer_interrupt_cb(self, pin):
