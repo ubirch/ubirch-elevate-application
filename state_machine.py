@@ -618,58 +618,43 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
 
     # make the elevate data package
     elevate_data = {
-        'properties.variables': {}
+        'properties.variables': event,
+        'ts': {'v': current_time},
     }
-    elevate_data['properties.variables'].update(event)
-    elevate_data['properties.variables'].update({'ts':{'v': current_time}})
-
     elevate_serialized = serialize_json(elevate_data)
     log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(elevate_data)))
 
-    # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
     try:
+        # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
         machine.sim.sim_auth(machine.pin)
-    except Exception as e:
-        machine.lastError = str(e)
-        machine.go_to_state('reset')
-    # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
-    try:
+
+        # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
         print("++ creating UPP")
         upp = machine.sim.message_chained(machine.key_name, elevate_serialized, hash_before_sign=True)
         print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
-    except Exception as e:
-        machine.lastError = str(e)
-        machine.go_to_state('reset')
 
-    machine.connection.connect()
+        machine.connection.connect()
 
-    try:
         # send data message to data service, with reconnects/modem resets if necessary
-        log.debug("++ sending elevate")
-        try:
-            status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                     machine.elevate_api.send_data, machine.uuid,
-                                                     json.dumps(elevate_data))
-            log.debug("RESPONSE: {}".format(content))
-        except Exception as e:
-            machine.lastError = str(e)
-            machine.go_to_state('reset')
+        status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
+                                                    machine.elevate_api.send_data, machine.uuid,
+                                                    json.dumps(elevate_data))
+        log.debug("RESPONSE: {}".format(content))
 
         # send UPP to the ubirch authentication service to be anchored to the blockchain
-        print("++ sending UPP")
-        try:
-            status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
+        status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                      machine.api.send_upp, machine.uuid, upp)
-        except Exception as e:
-            machine.lastError = str(e)
-            machine.go_to_state('reset')
 
         # communication worked in general, now check server response
         if not 200 <= status_code < 300:
-            raise Exception("backend (UPP) returned error: ({}) {}".format(status_code,
-                                                                           ubinascii.hexlify(content).decode()))
+            log.error("backend (UPP) returned error: ({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
     except Exception as e:
         log.exception(str(e))
+        machine.lastError = str(e)
+        machine.go_to_state('reset')
+        return
+
+    # todo: can this be moved into the try/except block above?
     try:
         log.debug("NIOMON:({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
     except Exception as e:
