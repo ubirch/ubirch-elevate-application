@@ -416,15 +416,16 @@ class StateWaitingForOvershoot(State):
         State.enter(self, machine)
         machine.breath.set_color(LED_PURPLE)
         machine.sensor.start()
+        machine.sensor.print_status_table()
 
     def exit(self, machine):
-        machine.sensor.stop()
         State.exit(self, machine)
         machine.timerInactivity = time.time()
 
     def update(self, machine):
         if State.update(self, machine):
             machine.sensor.poll_sensors()
+            machine.sensor.print_status()
             if machine.sensor.overshoot:
                 machine.go_to_state('measuringPaused')
                 return
@@ -449,12 +450,16 @@ class StateMeasuringPaused(State):
 
     def enter(self, machine):
         State.enter(self, machine)
+        machine.sensor.print_status()
         log.info("Recognized an elevator journey with v ~= %+.3f m/s %s", machine.sensor.speed_filtered_smooth, machine.sensor.direction)
         machine.timerActivity = time.time() # todo check this unit
         machine.breath.set_color(LED_GREEN)
         machine.intervalForInactivityEventMs = machine.FirstIntervalForInactivityEventMs
         event = ({
             'properties.variables.isWorking': { 'value': True },
+            'properties.variables.acceleration': { 'value': machine.sensor.accel_filtered_smooth },
+            'properties.variables.accelerationMax': { 'value': machine.sensor.accel_max },
+            'properties.variables.accelerationMin': { 'value': machine.sensor.accel_min },
             'properties.variables.altitude': { 'value': machine.sensor.altitude },
             'properties.variables.temperature': { 'value': machine.sensor.temperature }
         })
@@ -462,6 +467,7 @@ class StateMeasuringPaused(State):
 
 
     def exit(self, machine):
+        machine.sensor.stop()
         State.exit(self, machine)
         # save the time of this activity for the next time as last activity
         machine.timerLastActivity = machine.timerActivity
@@ -504,6 +510,7 @@ class StateInactive(State):  # todo check what happens in original code
         self.new_log_level, self.new_state = _get_state_from_backend(machine)
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
+        machine.sensor.print_status_table()
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -511,6 +518,7 @@ class StateInactive(State):  # todo check what happens in original code
 
     def update(self, machine):
         if State.update(self, machine):
+            machine.sensor.print_status()
             machine.sensor.poll_sensors()
             if machine.sensor.overshoot:
                 machine.go_to_state('measuringPaused')

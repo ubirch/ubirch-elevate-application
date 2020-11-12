@@ -14,6 +14,8 @@ class MovementSensor(object):
         self.speed_filtered_smooth = 0.0
         self.speed_min = 0.0
         self.speed_max = 0.0
+        self.accel_max = 0.0
+        self.accel_min = 0.0
         self.altitude = 0.0
         self.temperature = 0.0
 
@@ -55,13 +57,6 @@ class MovementSensor(object):
         self.active = True
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb)
 
-        print("┌---------------------------------------┬---------------------------------------------------------┬---------┬--------┬--------┐")
-        print("| acceleration                          |  speed (estimated)                                      | time    | alt    | temp   |")
-        print("| raw      smooth   w/o DC    smooth    |  raw        w/o DC     smooth     min        max        |         |        |        |")
-        print("├---------------------------------------┼---------------------------------------------------------┼---------┼--------┼--------┤")
-        print("|                                       |                                                         |         |        |        |")
-        print("└---------------------------------------┴---------------------------------------------------------┴---------┴--------┴--------┘")
-
     def stop(self):
         self.active = False
         self.pysense.accelerometer.enable_fifo_interrupt(handler=None)
@@ -81,13 +76,22 @@ class MovementSensor(object):
         self.pysense.accelerometer.restart_fifo()
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb)
 
+
+    def print_status_table(self):
+        print("┌---------------------------------------┬---------------------------------------------------------┬---------┬--------┬--------┐")
+        print("| acceleration                          |  speed (estimated)                                      | time    | alt    | temp   |")
+        print("| raw      smooth   w/o DC    smooth    |  raw        w/o DC     smooth     min        max        |         |        |        |")
+        print("├---------------------------------------┼---------------------------------------------------------┼---------┼--------┼--------┤")
+        print("|                                       |                                                         |         |        |        |")
+        print("└---------------------------------------┴---------------------------------------------------------┴---------┴--------┴--------┘")
+
     def print_status(self):
         now = time.ticks_ms()
         if (now - self.last_print_ms < 250):
             return
         self.last_print_ms = now
         print("\r", end="")
-        print("\033[s\033[2A│ %+.3fg  %+.3fg  %+.3fg  %+.3fg    │  %+.3fm/s  %+.3fm/s  %+.3fm/s  %+.3fm/s  %+.3fm/s  │ %6.1fs | %5.1fm | %3.1f°C  \033[u" % (
+        print("\033[s\033[2A│ %+.3fg  %+.3fg  %+.3fg  %+.3fg    │  %+.3fm/s  %+.3fm/s  %+.3fm/s  %+.3fm/s  %+.3fm/s  │ %6.1fs | %5.1fm | %3.1f°C \033[u" % (
             self.accel,
             self.accel_smooth,
             self.accel_filtered,
@@ -139,6 +143,8 @@ class MovementSensor(object):
         if (time.ticks_ms() - self.last_start_ms > 3000):
             self.speed_max = max(self.speed_max, self.speed_filtered_smooth)
             self.speed_min = min(self.speed_min, self.speed_filtered_smooth)
+            self.accel_max = max(self.accel_max, self.accel_filtered_smooth)
+            self.accel_min = min(self.accel_min, self.accel_filtered_smooth)
 
             if abs(self.speed_filtered_smooth) > threshold:
                 self.overshoot = True
@@ -146,6 +152,4 @@ class MovementSensor(object):
                     self.direction = '🔺'
                 if self.speed_filtered_smooth < 0:
                     self.direction = '🔻'
-
-        self.print_status()
 
