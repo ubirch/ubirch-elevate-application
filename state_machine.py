@@ -15,11 +15,9 @@ from network import LTE
 from lib.pyboard import *
 from lib.realtimeclock import enable_time_sync, wait_for_sync
 from sensor import MovementSensor
-from sensor_config import *
 import ujson as json
 import logging
 import ubirch
-
 
 STANDARD_DURATION_MS = 500
 
@@ -65,22 +63,6 @@ class StateMachine(object):
         log.info("[Core] Hello, I am %s",  ubinascii.hexlify(pycom_machine.unique_id()))
 
 
-    def speed(self):
-        """
-        Calculate th maximum absolute speed value from current sensor values,
-        over all axis.
-        :return: the maximum value of the currently measured speed.
-        """
-        max_speed = 0.0
-        i = 0
-        while i < 3:
-            if self.sensor.speed_max[i] > max_speed:
-                max_speed = self.sensor.speed_max[i]
-            if math.fabs(self.sensor.speed_min[i]) > max_speed:
-                max_speed = math.fabs(self.sensor.speed_min[i])
-            i += 1
-        return max_speed
-
     def add_state(self, state):
         """
         Add a new state to the state machine
@@ -108,7 +90,12 @@ class StateMachine(object):
         """
         if self.state:
             # print('Updating %s' % (self.state.name))
-            self.state.update(self)
+            try:
+                self.state.update(self)
+            except Exception as e:
+                log.exception('Uncaught exception while processing state %s: %s', self.state, str(e))
+                self.lastError = str(e)
+                self.go_to_state('error')
 
     # When pausing, don't exit the state
     def pause(self):
@@ -261,6 +248,7 @@ class StateInitSystem(State):
             except Exception as e:
                 machine.lastError = str(e)
                 machine.go_to_state('reset')
+                return
 
             try:
                 machine.pin = bootstrap(imsi, machine.api)
@@ -269,6 +257,7 @@ class StateInitSystem(State):
             except Exception as e:
                 machine.lastError = str(e)
                 machine.go_to_state('reset')
+                return
 
         # # disconnect from LTE connection before accessing SIM application
         # # (this is only necessary if we are connected via LTE)
@@ -283,6 +272,7 @@ class StateInitSystem(State):
         except Exception as e:
             machine.lastError = str(e)
             machine.go_to_state('reset')
+            return
 
         # unlock SIM
         try:
@@ -391,12 +381,12 @@ class StateSendingDiagnostics(State):
 
         rssi, ber = machine.sim.get_signal_quality(machine.debug)
         cops = machine.sim.get_network_stats(machine.debug)  # TODO this is not yet decyphered
-        event = ({'cellSignalPower': {'value': rssi},
-                  'cellSignalQuality': {'value': ber},
-                  'cellTechnology': {'value': cops},
-                  'hardwareVersion':{'value': '0.9.0'},
-                  'firmwareVersion':{'value': '0.9.1'},
-                  'resetCause':{'value':RESET_REASON}})
+        event = ({'properties.variables.cellSignalPower': {'value': rssi},
+                  'properties.variables.cellSignalQuality': {'value': ber},
+                  'properties.variables.cellTechnology': {'value': cops},
+                  'properties.variables.hardwareVersion':{'value': '0.9.0'},
+                  'properties.variables.firmwareVersion':{'value': '0.9.1'},
+                  'properties.variables.resetCause':{'value':RESET_REASON}})
 
         _send_event(machine, event, time.time())
 
@@ -425,6 +415,8 @@ class StateWaitingForOvershoot(State):
     def enter(self, machine):
         State.enter(self, machine)
         machine.breath.set_color(LED_PURPLE)
+        machine.sensor.start()
+        machine.sensor.print_status_table()
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -432,15 +424,16 @@ class StateWaitingForOvershoot(State):
 
     def update(self, machine):
         if State.update(self, machine):
-            if machine.sensor.trigger:
-                machine.sensor.calc_speed()
-                if machine.speed() > g_THRESHOLD:
-                    machine.go_to_state('measuringPaused')
-                    return
+            machine.sensor.poll_sensors()
+            machine.sensor.print_status()
+            if machine.sensor.overshoot:
+                machine.go_to_state('measuringPaused')
+                return
 
             now = time.ticks_ms()
-            if now >= self.enter_timestamp + machine.IntervalForDetectingInactivityMs:
+            if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
                 machine.go_to_state('inactive')
+                return
 
 
 class StateMeasuringPaused(State):
@@ -457,29 +450,31 @@ class StateMeasuringPaused(State):
 
     def enter(self, machine):
         State.enter(self, machine)
+        machine.sensor.print_status()
+        log.info("Recognized an elevator journey with v ~= %+.3f m/s %s", machine.sensor.speed_filtered_smooth, machine.sensor.direction)
         machine.timerActivity = time.time() # todo check this unit
         machine.breath.set_color(LED_GREEN)
         machine.intervalForInactivityEventMs = machine.FirstIntervalForInactivityEventMs
-        log.debug("SPEED: {}{}".format(machine.sensor.speed_max, machine.sensor.speed_min))
-
-        event = ({'isWorking':{'value': True}})
+        event = ({
+            'properties.variables.isWorking': { 'value': True },
+            'properties.variables.acceleration': { 'value': machine.sensor.accel_filtered_smooth },
+            'properties.variables.accelerationMax': { 'value': machine.sensor.accel_max },
+            'properties.variables.accelerationMin': { 'value': machine.sensor.accel_min },
+            'properties.variables.altitude': { 'value': machine.sensor.altitude },
+            'properties.variables.temperature': { 'value': machine.sensor.temperature }
+        })
         _send_event(machine, event, time.time())
 
-        # reset the speed values for next time
-        machine.sensor.speed_max[0] = 0.0
-        machine.sensor.speed_max[1] = 0.0
-        machine.sensor.speed_max[2] = 0.0
-        machine.sensor.speed_min[0] = 0.0
-        machine.sensor.speed_min[1] = 0.0
-        machine.sensor.speed_min[2] = 0.0
 
     def exit(self, machine):
+        machine.sensor.stop()
         State.exit(self, machine)
         # save the time of this activity for the next time as last activity
         machine.timerLastActivity = machine.timerActivity
 
     def update(self, machine):
         if State.update(self, machine):
+            machine.sensor.poll_sensors()
             now = time.ticks_ms()
             if now >= self.enter_timestamp + machine.OvershotDetectionPauseIntervalMs:
                 machine.go_to_state('waitingForOvershoot')
@@ -507,10 +502,15 @@ class StateInactive(State):  # todo check what happens in original code
         machine.intervalForInactivityEventMs = \
             machine.intervalForInactivityEventMs * \
             machine.ExponentialBackoffFactorForInactivityEvent
-
+        event = ({
+            'properties.variables.altitude': { 'value': machine.sensor.altitude },
+            'properties.variables.temperature': { 'value': machine.sensor.temperature }
+        })
+        _send_event(machine, event, time.time())
         self.new_log_level, self.new_state = _get_state_from_backend(machine)
-        log.info("new LEVEL: ({}) new STATE:({})".format(self.new_log_level, self.new_state))
+        log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
+        machine.sensor.print_status_table()
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -518,11 +518,11 @@ class StateInactive(State):  # todo check what happens in original code
 
     def update(self, machine):
         if State.update(self, machine):
-            if machine.sensor.trigger:
-                machine.sensor.calc_speed()
-                if machine.speed() > g_THRESHOLD:
-                    machine.go_to_state('measuringPaused')
-                    return
+            machine.sensor.print_status()
+            machine.sensor.poll_sensors()
+            if machine.sensor.overshoot:
+                machine.go_to_state('measuringPaused')
+                return
 
             now = time.ticks_ms()
             if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
@@ -591,7 +591,8 @@ class StateError(State):
             log.error("[Core] Last error: {}".format(machine.lastError))
         else:
             log.error("[Core] Unknown error.")
-        
+
+        machine.sensor.stop()
         machine.sim.deinit()
         pycom_machine.reset()
         # todo maybe try to send the error to backend, but only once, wait for long time?
@@ -615,62 +616,43 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
     :param current_time: time variable
     :return:
     """
-    print("SENDING")
 
     # make the elevate data package
-    elevate_data = {
-        'properties.variables': {}
-    }
-    elevate_data['properties.variables'].update(event)
-    elevate_data['properties.variables'].update({'ts':{'v': current_time}})
+    event.update({ 'properties.variables.ts': { 'v': current_time } })
+    elevate_serialized = serialize_json(event)
+    log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
 
-    elevate_serialized = serialize_json(elevate_data)
-    log.debug("ELEVATE RAW: {}".format(json.dumps(elevate_data)))
-
-    # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
     try:
+        # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
         machine.sim.sim_auth(machine.pin)
-    except Exception as e:
-        machine.lastError = str(e)
-        machine.go_to_state('reset')
-    # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
-    try:
+
+        # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
         print("++ creating UPP")
         upp = machine.sim.message_chained(machine.key_name, elevate_serialized, hash_before_sign=True)
         print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
-    except Exception as e:
-        machine.lastError = str(e)
-        machine.go_to_state('reset')
 
-    machine.connection.connect()
+        machine.connection.connect()
 
-    try:
         # send data message to data service, with reconnects/modem resets if necessary
-        log.debug("++ sending elevate")
-        try:
-            status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                     machine.elevate_api.send_data, machine.uuid,
-                                                     json.dumps(elevate_data))
-            log.debug("RESPONSE: {}".format(content))
-        except Exception as e:
-            machine.lastError = str(e)
-            machine.go_to_state('reset')
+        status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
+                                                    machine.elevate_api.send_data, machine.uuid,
+                                                    json.dumps(event))
+        log.debug("RESPONSE: {}".format(content))
 
         # send UPP to the ubirch authentication service to be anchored to the blockchain
-        print("++ sending UPP")
-        try:
-            status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
+        status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                      machine.api.send_upp, machine.uuid, upp)
-        except Exception as e:
-            machine.lastError = str(e)
-            machine.go_to_state('reset')
 
         # communication worked in general, now check server response
         if not 200 <= status_code < 300:
-            raise Exception("backend (UPP) returned error: ({}) {}".format(status_code,
-                                                                           ubinascii.hexlify(content).decode()))
+            log.error("backend (UPP) returned error: ({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
     except Exception as e:
         log.exception(str(e))
+        machine.lastError = str(e)
+        machine.go_to_state('reset')
+        return
+
+    # todo: can this be moved into the try/except block above?
     try:
         log.debug("NIOMON:({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
     except Exception as e:
@@ -684,27 +666,23 @@ def _get_state_from_backend(machine):
     :return: log level and new state
     """
     # machine.disable_interrupt()
-    print("GET THE STATE")
     level = ""
     state = ""
     machine.connection.connect()
 
     # send data message to data service, with reconnects/modem resets if necessary
     try:
-        log.debug("++ getting elevate state")
-        try:
-            status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                          machine.elevate_api.get_state, machine.uuid, '')
-            log.debug("ELEVATE: {} {}".format(level, state))
-        except Exception as e:
-            log.exception(str(e))
-            machine.go_to_state('error')
-            # pycom_machine.reset()
-            # communication worked in general, now check server response
-            if not 200 <= status_code < 300:
-                raise Exception("backend (ELEVATE) returned error: ({})".format(status_code))
+        status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
+                                                        machine.elevate_api.get_state, machine.uuid, '')
+        log.debug("Elevate backend returned log level: {}, state: {}".format(level, state))
     except Exception as e:
         log.exception(str(e))
+        machine.go_to_state('error')
+        # pycom_machine.reset()
+        # communication worked in general, now check server response
+        if not 200 <= status_code < 300:
+            log.error("Elevate backend returned HTTP error code {}".format(status_code))
+
     return level, state
 
 

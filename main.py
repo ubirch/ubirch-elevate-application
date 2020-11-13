@@ -72,7 +72,7 @@ class Main:
         while True:
             try:
                 self.root_controller.update()
-                time.sleep_ms(10)
+                time.sleep_ms(5)
                 # print(micropython.mem_info())
                 wdt.feed()
             except Exception as e:
