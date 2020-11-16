@@ -55,7 +55,6 @@ def reset_modem(lte: LTE, debug_print=False):
     else:
         raise Exception("could not set CEREG level")
 
-
 def get_imsi(lte: LTE, debug_print=False) -> str:
     """
     Get the international mobile subscriber identity (IMSI) of the SIM card

@@ -5,7 +5,7 @@ from uuid import UUID
 
 import ujson as json
 
-import lib.urequests as requests
+import lib.urequests2 as requests
 
 
 def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):

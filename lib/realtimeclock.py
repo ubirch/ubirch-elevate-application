@@ -20,7 +20,7 @@ def disable_time_sync():
 def wait_for_sync(timeout=60, print_dots=True):
     i = 0
     while not rtc.synced():
-        if print_dots: sys.stdout.write(".")
+        if print_dots: print(".", end="")
         time.sleep(1.0)
         i += 1
         if i > timeout:

@@ -7,7 +7,7 @@ from network import LTE
 
 class Connection:
 
-    def connect(self): # todo rename 'ensure connection'
+    def ensure_connection(self): # todo rename 'ensure connection'
         raise NotImplementedError
 
     def isconnected(self) -> bool:
@@ -32,7 +32,7 @@ class NB_IoT(Connection):
         if self.lte.isattached():
             return
 
-        sys.stdout.write("\tattaching to the NB-IoT network")
+        print("\tattaching to the NB-IoT network", end="")
         # since we disable unsolicited CEREG messages in modem.py, as they interfere with AT communication with the SIM via CSIM commands,
         # we are required to use an attach method that does not require cereg messages, for pycom that is legacyattach=false
         self.lte.attach(apn=self.apn, band=self.band, legacyattach=False)
@@ -40,26 +40,24 @@ class NB_IoT(Connection):
         while not self.lte.isattached() and i < self.attachtimeout:
             i += 1
             time.sleep(1.0)
-            # sys.stdout.write(".")
             print('.', end='')
         if not self.lte.isattached():
             raise OSError("!! unable to attach to NB-IoT network.")
 
         print("\n\t\tattached: {} s".format(i))
 
-    def connect(self):
+    def ensure_connection(self):
         if self.lte.isconnected():
             return
 
         if not self.lte.isattached(): self.attach()
 
-        sys.stdout.write("\tconnecting to the NB-IoT network")
+        print("\tconnecting to the NB-IoT network", end="")
         self.lte.connect()  # start a data session and obtain an IP address
         i = 0
         while not self.lte.isconnected() and i < self.connecttimeout:
             i += 1
             time.sleep(1.0)
-            # sys.stdout.write(".")
             print('.', end='')
         if not self.lte.isconnected():
             raise OSError("!! unable to connect to NB-IoT network.")
@@ -92,7 +90,7 @@ class WIFI(Connection):
         self.wlan = WLAN(mode=WLAN.STA)
         self.networks = networks
 
-    def connect(self):
+    def ensure_connection(self):
         if self.wlan.isconnected():
             return
 

@@ -81,7 +81,7 @@ def get_pin_from_flash(pin_file: str, imsi: str) -> str or None:
 
 def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_function, uuid, data) -> (int, bytes):
     MAX_MODEM_RESETS = 1  # number of retries with modem reset before giving up
-    MAX_RECONNECTS = 1  # number of retries with reconnect before trying a modem reset
+    MAX_RECONNECTS = 3  # number of retries with reconnect before trying a modem reset
 
     for reset_attempts in range(MAX_MODEM_RESETS + 1):
         # check if this is a retry for reset_attempts
@@ -90,7 +90,7 @@ def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_f
             sim.deinit()
             reset_modem(lte)  # TODO: should probably be connection.reset_hardware()
             sim.init()
-            conn.connect()
+            conn.ensure_connection()
 
         # try to send multiple times (with reconnect)
         try:
@@ -99,14 +99,14 @@ def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_f
                 if send_attempts > 0:
                     print("\tretrying with disconnect/reconnect")
                     conn.disconnect()
-                    conn.connect()
+                    conn.ensure_connection()
                 try:
                     print("\tsending...")
                     return api_function(uuid, data)
                 except Exception as e:
                     # TODO: log/print exception?
                     print("\tsending failed: {}".format(e))
-                    sys.print_exception(e)#TODO remove me
+                    # sys.print_exception(e)#TODO remove me
                     # (continues to top of send_attempts loop)
             else:
                 # all send attempts used up
@@ -201,9 +201,9 @@ def serialize_json(msg: dict) -> bytes:
             serialized += serialize_json(value).decode()
         elif value_type is bool:
             if value == True:
-                serialized += "True"
+                serialized += "true"
             else:
-                serialized += "False"
+                serialized += "false"
         else:
             raise Exception("unsupported data type {} for serialization in json message".format(value_type))
         serialized += ","

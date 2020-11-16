@@ -1,6 +1,6 @@
 from uuid import UUID
 
-import urequests as requests
+import urequests2 as requests
 from ubinascii import b2a_base64
 
 

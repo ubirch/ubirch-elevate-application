@@ -45,7 +45,8 @@ class StateMachine(object):
 
         # create instances of required objects
         self.sensor = MovementSensor()
-        self.lte = LTE()
+        self.lte = LTE(psm_period_value=1, psm_period_unit=LTE.PSM_PERIOD_1H,
+                       psm_active_value=5, psm_active_unit=LTE.PSM_ACTIVE_2S)
         self.breath = LedBreath()
 
         # set all necessary time values
@@ -210,6 +211,7 @@ class StateInitSystem(State):
         return 'initSystem'
 
     def enter(self, machine):
+        global COMING_FROM_DEEPSLEEP
         State.enter(self, machine)
         machine.breath.set_color(LED_TURQUOISE)
 
@@ -257,7 +259,7 @@ class StateInitSystem(State):
         machine.pin = get_pin_from_flash(pin_file, imsi)
         if machine.pin is None:
             try:
-                machine.connection.connect()
+                machine.connection.ensure_connection()
             except Exception as e:
                 machine.lastError = str(e)
                 machine.go_to_state('reset')
@@ -311,7 +313,7 @@ class StateInitSystem(State):
         csr_file = "csr_{}_{}.der".format(machine.uuid, machine.api.env)
         if csr_file not in uos.listdir():
             try:
-                machine.connection.connect()
+                machine.connection.ensure_connection()
             except Exception as e:
                 log.exception(str(e))
 
@@ -357,7 +359,7 @@ class StateConnecting(State):
         :return: True, if connection established, otherwise false
         """
         try:
-            machine.connection.connect()
+            machine.connection.ensure_connection()
             enable_time_sync()
             log.info("\twaiting for time sync")
             wait_for_sync(print_dots=True)
@@ -386,6 +388,7 @@ class StateSendingDiagnostics(State):
         return 'sendingDiagnostics'
 
     def enter(self, machine):
+        global RESET_REASON
         State.enter(self, machine)
         machine.breath.set_color(LED_YELLOW)
 
@@ -584,17 +587,20 @@ class StateError(State):
         return 'error'
 
     def enter(self, machine):
-        State.enter(self, machine)
-        machine.breath.set_color(LED_RED)
+        try: # just build tha in, because of recent error, which caused the controller to be BRICKED TODO: check this again
+            State.enter(self, machine)
+            machine.breath.set_color(LED_RED)
 
-        if machine.lastError:
-            log.error("[Core] Last error: {}".format(machine.lastError))
-        else:
-            log.error("[Core] Unknown error.")
-        
-        machine.sim.deinit()
-        pycom_machine.reset()
-        # todo maybe try to send the error to backend, but only once, wait for long time?
+            if machine.lastError:
+                log.error("[Core] Last error: {}".format(machine.lastError))
+            else:
+                log.error("[Core] Unknown error.")
+
+            machine.sim.deinit()
+
+        finally:
+            pycom_machine.reset()
+            # todo maybe try to send the error to backend, but only once, wait for long time?
 
     def exit(self, machine):
         """ This is intentionally left empty, because this point should never be entered"""
@@ -623,9 +629,11 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
     }
     elevate_data['properties.variables'].update(event)
     elevate_data['properties.variables'].update({'ts':{'v': current_time}})
-
+    # sort and trim the data and make a json from it
     elevate_serialized = serialize_json(elevate_data)
     log.debug("ELEVATE RAW: {}".format(json.dumps(elevate_data)))
+    log.debug("ELEVATE SER: {}".format(elevate_serialized))
+    log.debug("ELEVATE SER DEC: {}".format(elevate_serialized.decode()))
 
     # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
     try:
@@ -638,15 +646,17 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
         print("++ creating UPP")
         upp = machine.sim.message_chained(machine.key_name, elevate_serialized, hash_before_sign=True)
         print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
+        message_hash = get_upp_payload(upp)
+        print("\tdata message hash: {}".format(ubinascii.b2a_base64(message_hash).decode()))
     except Exception as e:
         machine.lastError = str(e)
         machine.go_to_state('reset')
 
-    machine.connection.connect()
 
     try:
         # send data message to data service, with reconnects/modem resets if necessary
         log.debug("++ sending elevate")
+        machine.connection.ensure_connection()
         try:
             status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                      machine.elevate_api.send_data, machine.uuid,
@@ -658,6 +668,7 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
 
         # send UPP to the ubirch authentication service to be anchored to the blockchain
         print("++ sending UPP")
+        machine.connection.ensure_connection()
         try:
             status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                      machine.api.send_upp, machine.uuid, upp)
@@ -687,10 +698,10 @@ def _get_state_from_backend(machine):
     print("GET THE STATE")
     level = ""
     state = ""
-    machine.connection.connect()
 
     # send data message to data service, with reconnects/modem resets if necessary
     try:
+        machine.connection.ensure_connection()
         log.debug("++ getting elevate state")
         try:
             status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,

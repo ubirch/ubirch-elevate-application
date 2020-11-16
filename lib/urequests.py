@@ -32,8 +32,11 @@ class Response:
         import ujson
         return ujson.loads(self.content)
 
+# storage for ssl sessions, for faster connection todo: check if this solution works
+ssl_stored_sessions = dict({})
 
 def request(method, url, data=None, json=None, headers={}, stream=None):
+    global ssl_stored_sessions
     # print("request POST " + url)
     try:
         proto, dummy, host, path = url.split("/", 3)
@@ -56,11 +59,31 @@ def request(method, url, data=None, json=None, headers={}, stream=None):
     ai = usocket.getaddrinfo(host, port) # todo check if -> is needed, 0, usocket.SOCK_STREAM)
     ai = ai[0]
 
-    s = usocket.socket(ai[0], ai[1], ai[2])
+    s = usocket.socket(ai[0], ai[1]) #, ai[2])
+
     try:
-        s.connect(ai[-1])
+        # chek if this connection is already known and stored
         if proto == "https:":
-            s = ussl.wrap_socket(s, server_hostname=host)
+            if host in ssl_stored_sessions:
+                print("##### found session")
+                session = ssl_stored_sessions[host]
+                try:
+                    s = ussl.wrap_socket(s, server_hostname=host, saved_session=session)
+                    s.connect(ai[-1])
+                except Exception as e:
+                    print("##### error with saved session {}".format(repr(e)))
+                    ssl_stored_sessions.pop(host)
+                    return
+            else:
+                print("##### no session found")
+                s.connect(ai[-1])
+                s = ussl.wrap_socket(s, server_hostname=host)
+
+            ssl_stored_sessions.update({host : ussl.save_session(s)})
+            if len(ssl_stored_sessions) > 16:
+                print("##### too many stored session, will be cleared")
+                ssl_stored_sessions.clear()
+
         s.write(b"%s /%s HTTP/1.0\r\n" % (method, path))
         if not "Host" in headers:
             s.write(b"Host: %s\r\n" % host)
@@ -105,6 +128,11 @@ def request(method, url, data=None, json=None, headers={}, stream=None):
     resp = Response(s)
     resp.status_code = status
     resp.reason = reason
+
+    try:
+        s.close()
+    except Exception:
+        raise
 
     return resp
 

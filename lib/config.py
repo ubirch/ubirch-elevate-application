@@ -2,7 +2,7 @@ import uos
 
 import ujson as json
 
-NIOMON_SERVICE = "https://niomon.{}.ubirch.com"
+NIOMON_SERVICE = "http://unsafe.niomon.{}.ubirch.com"
 DATA_SERVICE = "https://data.{}.ubirch.com/v1"
 BOOTSTRAP_SERVICE = "https://api.console.{}.ubirch.com/ubirch-web-ui/api/v1/devices/bootstrap"
 IDENTITY_SERVICE = "https://identity.{}.ubirch.com/api/certs/v1/csr/register"
@@ -70,7 +70,8 @@ def load_config(sd_card_mounted: bool = False) -> dict:
         cfg['niomon'] = NIOMON_SERVICE.format(cfg['env'])
 
     # now make sure the env key has the actual environment value that is used in the URL
-    cfg['env'] = cfg['niomon'].split(".")[1]
+#     cfg['env'] = cfg['niomon'].split(".")[1] TODO this is for HTTPS
+    cfg['env'] = cfg['niomon'].split(".")[2] # TODO this is for HTTP
     if cfg['env'] not in ["dev", "demo", "prod"]:
         raise Exception("invalid ubirch backend environment \"{}\"".format(cfg['env']))
 
