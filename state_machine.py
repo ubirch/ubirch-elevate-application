@@ -611,6 +611,36 @@ class StateError(State):
         pass
 
 
+class StateBootloader(State):
+    """
+    Bootloader State, which is entered, when the bootloader should be entered.
+    This state has the purpose to shutdown the system and reset the machine
+    to try an OTA (Over The Air Update)
+    """
+    def __init__(self):
+        super().__init__()
+
+    @property
+    def name(self):
+        return 'bootloader'
+
+    def enter(self, machine):
+        try: # just build tha in, because of recent error, which caused the controller to be BRICKED TODO: check this again
+            State.enter(self, machine)
+            machine.breath.set_color(LED_RED)
+            machine.sim.deinit()
+
+        finally:
+            pycom_machine.reset()
+
+    def exit(self, machine):
+        """ This is intentionally left empty, because this point should never be entered"""
+        pass
+
+    def update(self, machine):
+        """ This is intentionally left empty, because this point should never be entered"""
+        pass
+
 ################################################################################
 
 def _send_event(machine, event: dict, current_time: float):    # todo handle errors differently
@@ -763,7 +793,7 @@ def _state_switcher(state: str):
         'sensing': 'waitingForOvershoot',
         'custom1': 'waitingForOvershoot',
         'custom2': 'waitingForOvershoot',
-        'custom3': 'waitingForOvershoot'
+        'custom3': 'bootloader'
     }
     return switcher.get(state, 'error')
 

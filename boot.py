@@ -526,7 +526,7 @@
 #
 #         return devid
 #
-#     def connect(self):
+#     def connect(self, url:str=""):
 #         self.wlan = network.WLAN(mode=network.WLAN.STA)
 #         if not self.wlan.isconnected() or self.wlan.ssid() != self.SSID:
 #             for net in self.wlan.scan():
@@ -535,6 +535,18 @@
 #                                                        self.password))
 #                     while not self.wlan.isconnected():
 #                         machine.idle()  # save power while waiting
+#                     # now get the IP for the url
+#                     if url != "":
+#                         if ":" in url:
+#                             url, port = url.split(":", 1)
+#                             port = int(port)
+#                         try:
+#                             ai = socket.getaddrinfo(url, port)
+#                             print("IP ={}".format(ai[0][-1]))
+#                             self.ip = ai[0][-1]
+#                         except Exception:
+#                             raise OSError("IP address could not be found")
+#
 #                     break
 #             else:
 #                 raise Exception("Cannot find network '{}'".format(self.SSID))
@@ -658,7 +670,7 @@
 #
 #         print("\nattached: {} s".format(i))
 #
-#     def connect(self):
+#     def connect(self, url:str=""):
 #         if self.lte.isconnected():
 #             return
 #
@@ -675,6 +687,21 @@
 #             raise OSError("Timeout when connecting to NB-IoT network.")
 #
 #         print("\nconnected: {} s".format(i))
+#
+#         # now get the IP for the url
+#         if url != "":
+#             if ":" in url:
+#                 url, port = url.split(":", 1)
+#                 port = int(port)
+#             socket.dnsserver(1, '8.8.4.4')
+#             socket.dnsserver(0, '8.8.8.8')
+#             try:
+#                 ai = socket.getaddrinfo(url, port)  # todo check if -> is needed, 0, usocket.SOCK_STREAM)
+#                 print("IP ={}".format(ai[0][-1]))
+#                 self.ip = ai[0][-1]
+#             except Exception:
+#                 raise OSError("IP address could not be found")
+#
 #
 #     def clean_up(self):
 #         if self.lte.isconnected():
@@ -802,6 +829,7 @@
 # # and thus allow for garbage collection of OTA memory usage later
 # def check_OTA_update():
 #     # Configuration (if you are looking for the server pubkey: it's in the OTA class)
+#     SERVER_URL = "google.com:8000" # todo this has to be checked, if it works, the connect should get the IP address for the URL
 #     SERVER_IP = "10.42.0.1"
 #     NBIOT_APN = "iot.1nce.net"
 #     NBIOT_BAND = None #None = autoscan
@@ -815,29 +843,29 @@
 #
 #     try:
 #         # Setup Wifi OTA
-#         from ota_wifi_secrets import WIFI_SSID, WIFI_PW
-#         ota = WiFiOTA(WIFI_SSID,
-#                 WIFI_PW,
-#                 SERVER_IP,  # server address
-#                 8000)  # server port
-#
-#         # # Setup NB-IoT OTA
-#         # print("Initializing LTE")
-#         # lte = LTE()
-#         # lte.reset()
-#         # lte.init()
-#
-#         # ota = NBIoTOTA(lte,
-#         #         NBIOT_APN,
-#         #         NBIOT_BAND,
-#         #         NBIOT_ATTACH_TIMEOUT,
-#         #         NBIOT_CONNECT_TIMEOUT,
+#         # from ota_wifi_secrets import WIFI_SSID, WIFI_PW
+#         # ota = WiFiOTA(WIFI_SSID,
+#         #         WIFI_PW,
 #         #         SERVER_IP,  # server address
 #         #         8000)  # server port
 #
+#         # # Setup NB-IoT OTA
+#         print("Initializing LTE")
+#         lte = LTE()
+#         lte.reset()
+#         lte.init()
+#
+#         ota = NBIoTOTA(lte,
+#                 NBIOT_APN,
+#                 NBIOT_BAND,
+#                 NBIOT_ATTACH_TIMEOUT,
+#                 NBIOT_CONNECT_TIMEOUT,
+#                 SERVER_IP,  # server address
+#                 8000)  # server port
+#
 #         #start the update itself
 #         print("Current version: ", ota.get_current_version())
-#         ota.connect()
+#         ota.connect(SERVER_URL) # todo this has to be checked, if it works, the connect should get the IP address for the URL
 #         ota.update()
 #     except Exception as e:
 #         raise(e)#let top level loop handle exception
@@ -855,6 +883,12 @@
 # print("\nEntering OTA bootloader")
 # pycom.heartbeat(False)
 # pycom.rgbled(0x000500)
+#
+# # disable the FTP Server
+# server = network.Server()
+# server.deinit() # disable the server
+# # disable the wifi on boot
+# pycom.wifi_on_boot(False)
 #
 # ota_max_retries = 3
 # for retries_left in range((ota_max_retries-1),-1,-1):
