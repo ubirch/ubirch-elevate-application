@@ -109,35 +109,35 @@ class MovementSensor(object):
     def process_next_sample(self, accel_xyz_tuple):
         if self.overshoot:
             return
-        acceleration_filter1_alpha = 0.04
-        acceleration_filter2_alpha = 0.5
-        speed_filter1_alpha = 0.03
-        speed_filter2_alpha = 0.2
-        threshold = 0.2
+        ACCELERATION_FILTER1_ALPHA = 0.04
+        ACCELERATION_FILTER2_ALPHA = 0.5
+        SPEED_FILTER1_ALPHA = 0.03
+        SPEED_FILTER2_ALPHA = 0.2
+        THRESHOLD = 0.2
 
         # Calculate length of 3D acceleration vector and remove gravity (1.0g)
         self.accel = (accel_xyz_tuple[0] ** 2 + accel_xyz_tuple[1] ** 2 + accel_xyz_tuple[2] ** 2) ** (1./2.) - 1.0
 
         # Remove jitter from acceleration signal.
-        self.accel_smooth = acceleration_filter1_alpha * self.accel + (1 - acceleration_filter1_alpha) * self.accel_smooth
+        self.accel_smooth = ACCELERATION_FILTER1_ALPHA * self.accel + (1 - ACCELERATION_FILTER1_ALPHA) * self.accel_smooth
 
         # Auto-calibrate: Filter out bias first using a DC bias filter.
         self.accel_filtered = self.accel - self.accel_smooth
 
-        self.accel_filtered_smooth = acceleration_filter2_alpha * self.accel_filtered + (1 - acceleration_filter2_alpha) * self.accel_filtered_smooth
+        self.accel_filtered_smooth = ACCELERATION_FILTER2_ALPHA * self.accel_filtered + (1 - ACCELERATION_FILTER2_ALPHA) * self.accel_filtered_smooth
 
         # Accumulate past acceleration values (without gravity) to calculate speed.
         self.speed = self.speed + self.accel_filtered_smooth
 
         # Average signal to remove high-frequency noise. Without this, a sudden movement like a
         # train passing nearby or an entering passenger could cause an overshoot event.
-        self.speed_smooth = speed_filter1_alpha * self.speed + (1 - speed_filter1_alpha) * self.speed_smooth
+        self.speed_smooth = SPEED_FILTER1_ALPHA * self.speed + (1 - SPEED_FILTER1_ALPHA) * self.speed_smooth
 
         # The signal still has a DC bias. Remove it.
         self.speed_filtered = self.speed - self.speed_smooth
 
         # Another low-pass filter on the result to remove jitter.
-        self.speed_filtered_smooth = speed_filter2_alpha * self.speed_filtered + (1 - speed_filter2_alpha) * self.speed_filtered_smooth
+        self.speed_filtered_smooth = SPEED_FILTER2_ALPHA * self.speed_filtered + (1 - SPEED_FILTER2_ALPHA) * self.speed_filtered_smooth
 
         # Discard the first few samples after a restart to ignore overshoot event from artifacts
         if (time.ticks_ms() - self.last_start_ms > 3000):
@@ -146,7 +146,7 @@ class MovementSensor(object):
             self.accel_max = max(self.accel_max, self.accel_filtered_smooth)
             self.accel_min = min(self.accel_min, self.accel_filtered_smooth)
 
-            if abs(self.speed_filtered_smooth) > threshold:
+            if abs(self.speed_filtered_smooth) > THRESHOLD:
                 self.overshoot = True
                 if self.speed_filtered_smooth > 0:
                     self.direction = '🔺'
