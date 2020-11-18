@@ -9,6 +9,8 @@ class MovementSensor(object):
     def __init__(self):
         self.accel_xyz = []
         self.accel_smooth = []
+        self.accel_filtered = []
+        self.accel_filtered_smooth = []
         self.speed = []
         self.speed_smooth = []
         self.speed_filtered = []
@@ -39,7 +41,7 @@ class MovementSensor(object):
         #   4 => 200 Hz; resolution: 40  milli seconds; max duration: 10200  ms
         #   5 => 400 Hz; resolution: 20  milli seconds; max duration: 5100   ms
         #   6 => 500 Hz; resolution: 10  milli seconds; max duration: 2550   ms
-        self.pysense.accelerometer.set_odr(5)
+        self.pysense.accelerometer.set_odr(3)
 
         # enable activity interrupt
         print("start")
@@ -82,6 +84,8 @@ class MovementSensor(object):
         for i in range(32):
             self.accel_xyz.append([])
             self.accel_smooth.append([])
+            self.accel_filtered.append([])
+            self.accel_filtered_smooth.append([])
             self.speed.append([])
             self.speed_smooth.append([])
             self.speed_filtered.append([])
@@ -89,6 +93,8 @@ class MovementSensor(object):
             for j in range(3):
                 self.accel_xyz[i].append(0.0)
                 self.accel_smooth[i].append(0.0)
+                self.accel_filtered[i].append(0.0)
+                self.accel_filtered_smooth[i].append(0.0)
                 self.speed[i].append(0.0)
                 self.speed_smooth[i].append(0.0)
                 self.speed_filtered[i].append(0.0)
@@ -97,17 +103,38 @@ class MovementSensor(object):
     # calculate the speed from the given acceleration values
     def calc_speed(self):
         self.trigger = False
+        ACCELERATION_FILTER1_ALPHA = 0.04
+        ACCELERATION_FILTER2_ALPHA = 0.5
+        SPEED_FILTER1_ALPHA = 0.03
+        SPEED_FILTER2_ALPHA = 0.2
+        THRESHOLD = 0.2
+
         j = 0
         while j < 3:
             # self.speed_min[j] = 0.0
             # self.speed_max[j] = 0.0
 
-            self.accel_smooth[0][j] = self.alpha * self.accel_xyz[0][j] \
-                                      + (1 - self.alpha) * self.accel_smooth[-1][j]
-            self.speed[0][j] = self.speed[-1][j] + self.accel_xyz[0][j] - self.accel_smooth[0][j]
-            self.speed_smooth[0][j] = self.alpha * self.speed[0][j] \
-                                      + (1 - self.alpha) * self.speed_smooth[-1][j]
+            # Remove jitter from acceleration signal.
+            self.accel_smooth[0][j] = ACCELERATION_FILTER1_ALPHA * self.accel_xyz[0][j] \
+                                      + (1 - ACCELERATION_FILTER1_ALPHA) * self.accel_smooth[-1][j]
+            # Auto-calibrate: Filter out bias first using a DC bias filter.
+            self.accel_filtered[0][j] = self.accel_xyz[0][j] - self.accel_smooth[0][j]
+
+            self.accel_filtered_smooth[0][j] = ACCELERATION_FILTER2_ALPHA * self.accel_filtered[0][j] \
+                                      + (1 - ACCELERATION_FILTER2_ALPHA) * self.accel_filtered_smooth[-1][j]
+
+            # Accumulate past acceleration values (without gravity) to calculate speed.
+            self.speed[0][j] = self.speed[-1][j] + self.accel_filtered_smooth[0][j]
+
+            # Average signal to remove high-frequency noise. Without this, a sudden movement like a
+            # train passing nearby or an entering passenger could cause an overshoot event.
+            self.speed_smooth[0][j] = SPEED_FILTER1_ALPHA * self.speed[0][j] \
+                                      + (1 - SPEED_FILTER1_ALPHA) * self.speed_smooth[-1][j]
+
+            # The signal still has a DC bias. Remove it.
             self.speed_filtered[0][j] = self.speed[0][j] - self.speed_smooth[0][j]
+
+            # Another low-pass filter on the result to remove jitter.
             self.speed_filtered_smooth[0][j] = self.alpha * self.speed_filtered[0][j] \
                                                + (1 - self.alpha) * self.speed_filtered_smooth[-1][j]
 
@@ -123,14 +150,29 @@ class MovementSensor(object):
         while i < 32:
             j = 0
             while j < 3:
-                self.accel_smooth[i][j] = self.alpha * self.accel_xyz[i][j] \
-                                          + (1 - self.alpha) * self.accel_smooth[i - 1][j]
-                self.speed[i][j] = self.speed[-1][j] + self.accel_xyz[i][j] - self.accel_smooth[i][j]
-                self.speed_smooth[i][j] = self.alpha * self.speed[i][j] \
-                                          + (1 - self.alpha) * self.speed_smooth[i - 1][j]
+                # Remove jitter from acceleration signal.
+                self.accel_smooth[i][j] = ACCELERATION_FILTER1_ALPHA * self.accel_xyz[i][j] \
+                                          + (1 - ACCELERATION_FILTER1_ALPHA) * self.accel_smooth[i -1][j]
+                # Auto-calibrate: Filter out bias first using a DC bias filter.
+                self.accel_filtered[i][j] = self.accel_xyz[i][j] - self.accel_smooth[i][j]
+
+                self.accel_filtered_smooth[i][j] = ACCELERATION_FILTER2_ALPHA * self.accel_filtered[i][j] \
+                                                   + (1 - ACCELERATION_FILTER2_ALPHA) * self.accel_filtered_smooth[i -1][j]
+
+                # Accumulate past acceleration values (without gravity) to calculate speed.
+                self.speed[i][j] = self.speed[i -1][j] + self.accel_filtered_smooth[i][j]
+
+                # Average signal to remove high-frequency noise. Without this, a sudden movement like a
+                # train passing nearby or an entering passenger could cause an overshoot event.
+                self.speed_smooth[i][j] = SPEED_FILTER1_ALPHA * self.speed[i][j] \
+                                          + (1 - SPEED_FILTER1_ALPHA) * self.speed_smooth[i -1][j]
+
+                # The signal still has a DC bias. Remove it.
                 self.speed_filtered[i][j] = self.speed[i][j] - self.speed_smooth[i][j]
+
+                # Another low-pass filter on the result to remove jitter.
                 self.speed_filtered_smooth[i][j] = self.alpha * self.speed_filtered[i][j] \
-                                                   + (1 - self.alpha) * self.speed_filtered_smooth[i - 1][j]
+                                                   + (1 - self.alpha) * self.speed_filtered_smooth[i -1][j]
                 if self.speed_filtered_smooth[i][j] > self.speed_max[j]:
                     self.speed_max[j] = self.speed_filtered_smooth[i][j]
                 if self.speed_filtered_smooth[i][j] < self.speed_min[j]:
@@ -139,4 +181,4 @@ class MovementSensor(object):
 
             i += 1
         # print(self.speed_min, self.speed_max)
-        return self.speed_max, self.speed_min
+        return # self.speed_max, self.speed_min

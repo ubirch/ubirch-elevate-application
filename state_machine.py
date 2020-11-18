@@ -22,6 +22,7 @@ import ubirch
 
 
 STANDARD_DURATION_MS = 500
+WAIT_FOR_TUNING = 60000
 
 log = logging.getLogger()
 
@@ -62,6 +63,8 @@ class StateMachine(object):
         self.timerLastActivity = 0.0
         self.timerInactivity = 0.0
 
+        self.restartTimeMs = 0
+
         log.info("\033[0;35m[Core] Initializing magic... \033[0m ✨ ")
         log.info("[Core] Hello, I am %s",  ubinascii.hexlify(pycom_machine.unique_id()))
 
@@ -77,8 +80,12 @@ class StateMachine(object):
         while i < 3:
             if self.sensor.speed_max[i] > max_speed:
                 max_speed = self.sensor.speed_max[i]
+
             if math.fabs(self.sensor.speed_min[i]) > max_speed:
                 max_speed = math.fabs(self.sensor.speed_min[i])
+
+            self.sensor.speed_min[i] = 0.0
+            self.sensor.speed_max[i] = 0.0
             i += 1
         return max_speed
 
@@ -196,6 +203,8 @@ class State(object):
         :return: True, to indicate, the function was called.
         """
         machine.breath.update()
+        if machine.sensor.trigger:
+            machine.sensor.calc_speed()
         return True
 
 
@@ -363,6 +372,8 @@ class StateConnecting(State):
             enable_time_sync()
             log.info("\twaiting for time sync")
             wait_for_sync(print_dots=True)
+            # set the restart timer for filter tuning
+            machine.restartTimeMs = time.ticks_ms()
 
         except Exception as e:
             log.exception(str(e))
@@ -426,25 +437,34 @@ class StateWaitingForOvershoot(State):
         return 'waitingForOvershoot'
 
     def enter(self, machine):
-        State.enter(self, machine)
-        machine.breath.set_color(LED_PURPLE)
+        try:
+            State.enter(self, machine)
+            machine.breath.set_color(LED_PURPLE)
+        except Exception as e:
+            log.exception(str(e))
 
     def exit(self, machine):
         State.exit(self, machine)
         machine.timerInactivity = time.time()
 
     def update(self, machine):
-        if State.update(self, machine):
-            if machine.sensor.trigger:
-                machine.sensor.calc_speed()
-                if machine.speed() > g_THRESHOLD:
-                    machine.go_to_state('measuringPaused')
-                    return
+        try:
+            if State.update(self, machine):
+                # if machine.sensor.trigger:
+                #     machine.sensor.calc_speed()
+                #     # wait 30 seconds for filter to tune in
+                if time.ticks_ms() - machine.restartTimeMs > WAIT_FOR_TUNING:
+                    if machine.speed() > g_THRESHOLD:
+                        machine.go_to_state('measuringPaused')
+                        return
+                else:
+                    print("sensor tuning in with ({})".format(machine.speed()))
 
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + machine.IntervalForDetectingInactivityMs:
-                machine.go_to_state('inactive')
-
+                now = time.ticks_ms()
+                if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
+                    machine.go_to_state('inactive')
+        except Exception as e:
+            log.exception(str(e))
 
 class StateMeasuringPaused(State):
     """
@@ -468,6 +488,10 @@ class StateMeasuringPaused(State):
         event = ({'isWorking':{'value': True}})
         _send_event(machine, event, time.time())
 
+    def exit(self, machine):
+        State.exit(self, machine)
+        # save the time of this activity for the next time as last activity
+        machine.timerLastActivity = machine.timerActivity
         # reset the speed values for next time
         machine.sensor.speed_max[0] = 0.0
         machine.sensor.speed_max[1] = 0.0
@@ -476,16 +500,17 @@ class StateMeasuringPaused(State):
         machine.sensor.speed_min[1] = 0.0
         machine.sensor.speed_min[2] = 0.0
 
-    def exit(self, machine):
-        State.exit(self, machine)
-        # save the time of this activity for the next time as last activity
-        machine.timerLastActivity = machine.timerActivity
-
     def update(self, machine):
-        if State.update(self, machine):
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + machine.OvershotDetectionPauseIntervalMs:
-                machine.go_to_state('waitingForOvershoot')
+        try:
+            if State.update(self, machine):
+                # if machine.sensor.trigger:
+                #     machine.sensor.calc_speed()
+
+                now = time.ticks_ms()
+                if now >= self.enter_timestamp + machine.OvershotDetectionPauseIntervalMs:
+                    machine.go_to_state('waitingForOvershoot')
+        except Exception as e:
+            log.exception(str(e))
 
 
 class StateInactive(State):  # todo check what happens in original code
@@ -520,19 +545,27 @@ class StateInactive(State):  # todo check what happens in original code
         machine.timerInactivity = time.time() # todo check if this is the correct time
 
     def update(self, machine):
-        if State.update(self, machine):
-            if machine.sensor.trigger:
-                machine.sensor.calc_speed()
-                if machine.speed() > g_THRESHOLD:
-                    machine.go_to_state('measuringPaused')
+        try:
+            if State.update(self, machine):
+                # if machine.sensor.trigger:
+                #     machine.sensor.calc_speed()
+                #     # wait 30 seconds for filter to tune in
+                if time.ticks_ms() - machine.restartTimeMs > WAIT_FOR_TUNING:
+                    if machine.speed() > g_THRESHOLD:
+                        machine.go_to_state('measuringPaused')
+                        return
+                else:
+                    print("sensor tuning in with ({})".format(machine.speed()))
+
+                now = time.ticks_ms()
+                if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
+                    machine.go_to_state('inactive')  # todo check if this can be simplified
                     return
 
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
-                machine.go_to_state('inactive')  # todo check if this can be simplified
-                return
+                self._adjust_level_state(machine, self.new_log_level, self.new_state)
+        except Exception as e:
+            log.exception(str(e))
 
-            self._adjust_level_state(machine, self.new_log_level, self.new_state)
 
     def _adjust_level_state(self, machine, level, state):
         """
@@ -662,8 +695,6 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
     # sort and trim the data and make a json from it
     elevate_serialized = serialize_json(elevate_data)
     log.debug("ELEVATE RAW: {}".format(json.dumps(elevate_data)))
-    log.debug("ELEVATE SER: {}".format(elevate_serialized))
-    log.debug("ELEVATE SER DEC: {}".format(elevate_serialized.decode()))
 
     # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
     try:
