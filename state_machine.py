@@ -42,9 +42,14 @@ class StateMachine(object):
         self.lastError = None
 
         # create instances of required objects
-        self.sensor = MovementSensor()
-        self.lte = LTE()
-        self.breath = LedBreath()
+        try:
+            self.sensor = MovementSensor()
+            self.lte = LTE(psm_period_value=1, psm_period_unit=LTE.PSM_PERIOD_1H,
+                       psm_active_value=5, psm_active_unit=LTE.PSM_ACTIVE_2S)
+            self.breath = LedBreath()
+        except OSError as e:
+            log.error(str(e))
+            pycom_machine.reset()
 
         # set all necessary time values
         self.IntervalForDetectingInactivityMs = 60000
