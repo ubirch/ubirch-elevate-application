@@ -281,7 +281,7 @@ class StateInitSystem(State):
                 machine.connection.ensure_connection()
             except Exception as e:
                 machine.lastError = str(e)
-                machine.go_to_state('reset')
+                machine.go_to_state('error')
                 return
 
             try:
@@ -290,7 +290,7 @@ class StateInitSystem(State):
                     f.write(machine.pin.encode())
             except Exception as e:
                 machine.lastError = str(e)
-                machine.go_to_state('reset')
+                machine.go_to_state('error')
                 return
 
         # # disconnect from LTE connection before accessing SIM application
@@ -305,7 +305,7 @@ class StateInitSystem(State):
             machine.sim = ElevateSim(lte=machine.lte, at_debug=machine.debug)
         except Exception as e:
             machine.lastError = str(e)
-            machine.go_to_state('reset')
+            machine.go_to_state('error')
             return
 
         # unlock SIM
@@ -737,7 +737,7 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
     except Exception as e:
         log.exception(str(e))
         machine.lastError = str(e)
-        machine.go_to_state('reset')
+        machine.go_to_state('error')
         return
 
     # todo: can this be moved into the try/except block above?
