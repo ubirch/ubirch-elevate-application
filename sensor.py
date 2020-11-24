@@ -17,9 +17,15 @@ class MovementSensor(object):
         self.speed_filtered_smooth = []
         self.speed_max = [0.0, 0.0, 0.0]
         self.speed_min = [0.0, 0.0, 0.0]
+        self.accel_max = 0.0
+        self.accel_min = 0.0
+        self.altitude = 0.0
+        self.temperature = 0.0
         self.trigger = False        # todo rename this variable to indicate, what happens
         self.overshoot = False
-        self.alpha = g_ALPHA
+        self.last_print_ms = 0
+        self.last_start_ms = 0
+
         self.globals_init()
 
         # initialise the accelerometer
@@ -49,6 +55,10 @@ class MovementSensor(object):
         self.pysense.accelerometer.setup_fifo()
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb)
         print("int enabled")
+
+    def poll_sensors(self):
+        self.altitude = self.pysense.altimeter.altitude()
+        self.temperature = self.pysense.humidity.temperature()
 
     # The accelerometer interrupt callback is triggered, when the fifo of the accelerometer is full.
     # It collects all data from the accelerometer and sets the trigger for the calculation.
@@ -135,13 +145,19 @@ class MovementSensor(object):
             self.speed_filtered[0][j] = self.speed[0][j] - self.speed_smooth[0][j]
 
             # Another low-pass filter on the result to remove jitter.
-            self.speed_filtered_smooth[0][j] = self.alpha * self.speed_filtered[0][j] \
-                                               + (1 - self.alpha) * self.speed_filtered_smooth[-1][j]
+            self.speed_filtered_smooth[0][j] = SPEED_FILTER2_ALPHA * self.speed_filtered[0][j] \
+                                               + (1 - SPEED_FILTER2_ALPHA) * self.speed_filtered_smooth[-1][j]
 
             if self.speed_filtered_smooth[0][j] > self.speed_max[j]:
                 self.speed_max[j] = self.speed_filtered_smooth[0][j]
             if self.speed_filtered_smooth[0][j] < self.speed_min[j]:
                 self.speed_min[j] = self.speed_filtered_smooth[0][j]
+
+            if self.accel_filtered_smooth[0][j] > self.accel_max:
+                self.accel_max = self.accel_filtered_smooth[0][j]
+            if self.accel_filtered_smooth[0][j] < self.accel_min:
+                self.accel_min = self.accel_filtered_smooth[0][j]
+
             j += 1
 
         # run through the ring
@@ -171,14 +187,21 @@ class MovementSensor(object):
                 self.speed_filtered[i][j] = self.speed[i][j] - self.speed_smooth[i][j]
 
                 # Another low-pass filter on the result to remove jitter.
-                self.speed_filtered_smooth[i][j] = self.alpha * self.speed_filtered[i][j] \
-                                                   + (1 - self.alpha) * self.speed_filtered_smooth[i -1][j]
+                self.speed_filtered_smooth[i][j] = SPEED_FILTER2_ALPHA * self.speed_filtered[i][j] \
+                                                   + (1 - SPEED_FILTER2_ALPHA) * self.speed_filtered_smooth[i -1][j]
                 if self.speed_filtered_smooth[i][j] > self.speed_max[j]:
                     self.speed_max[j] = self.speed_filtered_smooth[i][j]
                 if self.speed_filtered_smooth[i][j] < self.speed_min[j]:
                     self.speed_min[j] = self.speed_filtered_smooth[i][j]
+
+                if self.accel_filtered_smooth[i][j] > self.accel_max:
+                    self.accel_max = self.accel_filtered_smooth[i][j]
+                if self.accel_filtered_smooth[i][j] < self.accel_min:
+                    self.accel_min = self.accel_filtered_smooth[i][j]
+
                 j += 1
 
             i += 1
+
         # print(self.speed_min, self.speed_max)
         return # self.speed_max, self.speed_min

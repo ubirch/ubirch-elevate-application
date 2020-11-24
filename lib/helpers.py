@@ -256,6 +256,8 @@ class LedBreath(object):
         """
         # calculate the intensity
         _intensity = self.brightness / 512.0 * (math.sin(time.ticks_ms() / self.period * 2 * math.pi) + 1)
+        if _intensity < 0.1:
+            _intensity = 0.1
         # split the color into the RGB components
         _red = self.color >> 16 & 0xFF
         _green = self.color >> 8 & 0xFF
