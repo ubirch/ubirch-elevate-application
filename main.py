@@ -31,15 +31,12 @@ pycom.wifi_on_boot(False)
 # enable the garbage collector
 gc.enable()
 
-# filename for the log
-FILENAME = "/flash/my_log.txt"
-
 # create a logging for the system and store the information in a file
 FMT = "{\'t\':\'%(asctime)s\'," \
       "\'l\':\'%(levelname)s\'," \
       "\'m\': \'%(message)s\'}"
 #       "\'n\':\'%(name)s\'," \
-fileHandler = RotatingFileHandler(filename=FILENAME, maxBytes=16384, backupCount=4)
+fileHandler = RotatingFileHandler(filename=logging.FILENAME, maxBytes=16384, backupCount=4)
 fileHandler.setFormatter(logging.Formatter(fmt=FMT))
 
 logging.basicConfig(level=logging.DEBUG,
@@ -48,14 +45,6 @@ log = logging.getLogger()
 log.addHandler(fileHandler)
 
 log.warning("coming from reset")
-
-# read the log and print it, todo later send it
-with open(FILENAME,'r') as reader:
-    lines = reader.readlines()
-    for line in lines:
-        print(line)
-
-
 
 class Main:
     def __init__(self) -> None:

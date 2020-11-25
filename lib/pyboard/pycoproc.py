@@ -277,8 +277,12 @@ class Pycoproc:
     def read_battery_voltage(self):
         self.set_bits_in_memory(ADCON0_ADDR, _ADCON0_GO_nDONE_MASK)
         time.sleep_us(50)
+        count = 0
         while self.peek_memory(ADCON0_ADDR) & _ADCON0_GO_nDONE_MASK:
             time.sleep_us(100)
+            count += 1
+            if (count > 500):  # timeout after 50ms
+                raise Exception('Reading Battery voltage timeout')
         adc_val = (self.peek_memory(ADRESH_ADDR) << 2) + (self.peek_memory(ADRESL_ADDR) >> 6)
         return (((adc_val * 3.3 * 280) / 1023) / 180) + 0.01    # add 10mV to compensate for the drop in the FET
 

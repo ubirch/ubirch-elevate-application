@@ -1,7 +1,7 @@
 """
 from: https://learn.adafruit.com/circuitpython-101-state-machines?view=all#code
 """
-import uos
+import uos as os
 import utime as time
 import machine as pycom_machine
 import ubinascii
@@ -52,6 +52,8 @@ class StateMachine(object):
             self.breath = LedBreath()
         except OSError as e:
             log.error(str(e))
+            self.lastError = str(e)
+            # self.go_to_state('error')
             pycom_machine.reset()
 
         # set all necessary time values
@@ -244,8 +246,8 @@ class StateInitSystem(State):
             imsi = get_imsi(machine.lte)
             log.info("IMSI: " + imsi)
         except Exception as e:
-            log.exception("\tERROR setting up modem (%s)", str(e))  # todo long sleep and then reset.
-            while True:
+            log.exception("\tERROR setting up modem (%s)", str(e))
+            while True: # watchdog will get out of this
                 pycom_machine.idle()
 
         # write IMSI to SD card
@@ -262,6 +264,10 @@ class StateInitSystem(State):
             machine.api = ubirch.API(machine.cfg)  # set up API for backend communication
         except Exception as e:
             log.exception("\tERROR loading configuration (%s)", str(e)) #todo figure out how to behave and not to make a BRICK
+            event = ({
+                'properties.variables.lastError': {'value': str(e)}
+            })
+            _send_emergency_event(machine, event, time.time())
             while True:
                 pycom_machine.idle()
 
@@ -312,16 +318,23 @@ class StateInitSystem(State):
         try:
             machine.sim.sim_auth(machine.pin)
         except Exception as e:
-            log.exception(str(e))
+            #log.exception(str(e))
             # pycom_machine.reset() # TODO check this again, what to do, if PN is unknown
             # if PIN is invalid, there is nothing we can do -> block
             if isinstance(e, ValueError):
+                machine.breath.set_color(COLOR_SIM_FAIL)
                 log.critical("PIN is invalid, can't continue")
+                event = ({
+                    'properties.variables.lastError': {'value': 'PIN is invalid, can\'t continue'}
+                })
+                _send_emergency_event(machine, event, time.time())
                 while True:
                     wdt.feed()  # avert reset from watchdog   TODO check this, do not want to be stuck here
-                    machine.breath.set_color(COLOR_SIM_FAIL)
+                    machine.breath.update()
             else:
-                pycom_machine.reset()
+                machine.lastError = str(e)
+                machine.go_to_state('error')
+                return
 
         # get UUID from SIM
         machine.key_name = "ukey"
@@ -333,7 +346,7 @@ class StateInitSystem(State):
 
         # send a X.509 Certificate Signing Request for the public key to the ubirch identity service (once)
         csr_file = "csr_{}_{}.der".format(machine.uuid, machine.api.env)
-        if csr_file not in uos.listdir():
+        if csr_file not in os.listdir():
             try:
                 machine.connection.ensure_connection()
             except Exception as e:
@@ -389,8 +402,8 @@ class StateConnecting(State):
             machine.restartTimeMs = time.ticks_ms()
 
         except Exception as e:
-            log.exception(str(e))
-            pycom_machine.reset() # todo check for alternatives to RESET
+            machine.lastError = str(e)
+            machine.go_to_state('error')
             return False
         return True
 
@@ -416,6 +429,8 @@ class StateSendingDiagnostics(State):
         State.enter(self, machine)
         machine.breath.set_color(LED_YELLOW)
 
+
+        # get the signal quality and network status
         rssi, ber = machine.sim.get_signal_quality(machine.debug)
         cops = machine.sim.get_network_stats(machine.debug)  # TODO this is not yet decyphered
         event = ({'properties.variables.cellSignalPower': {'value': rssi},
@@ -424,6 +439,10 @@ class StateSendingDiagnostics(State):
                   'properties.variables.hardwareVersion':{'value': '0.9.0'},
                   'properties.variables.firmwareVersion':{'value': '0.9.1'},
                   'properties.variables.resetCause':{'value':RESET_REASON}})
+
+        last_log = self._read_log()
+        print("LOG: {}".format(last_log))
+        event.update({'properties.variables.lastLogContent':{'value': last_log}})
 
         _send_event(machine, event, time.time())
 
@@ -435,6 +454,53 @@ class StateSendingDiagnostics(State):
             now = time.ticks_ms()
             if now >= self.enter_timestamp + STANDARD_DURATION_MS:
                 machine.go_to_state('waitingForOvershoot')
+
+    def _read_log(self, num_errors:int=3):
+        """
+        Read the last ERRORs from log
+        :param num_errors: number of errors to return
+        :return: String of the last errors
+        :example: {'t':'1970-01-01T00:00:23Z','l':'ERROR','m':...}
+        """
+        last_log = ""
+        error_counter = 0
+        filename = logging.FILENAME.lstrip('/flash/')
+        if filename in os.listdir():
+            with open(logging.FILENAME, 'r') as reader:
+                print("file opened")
+                lines = reader.readlines()
+                for line in reversed(lines):
+                    # only take the error messages from the log
+                    if "ERROR" in line[:42]: # only look at the beginning of the line
+                        error_counter += 1
+                        if error_counter > num_errors:
+                            break
+                        last_log += (line.rstrip('\n'))
+                        # check if the message was closed with "}", if not, add it to ensure json
+                        if not "}" in line:
+                            last_log += "},"
+                        else:
+                            last_log += ","
+                    else:
+                        pass
+        if (filename + '.1') in os.listdir():
+            with open((logging.FILENAME + '.1'), 'r') as reader:
+                print("file opened")
+                lines = reader.readlines()
+                for line in reversed(lines):
+                    # only take the error messages from the log
+                    if "ERROR" in line[:42]: # only look at the beginning of the line
+                        error_counter += 1
+                        if error_counter > num_errors:
+                            break
+                        last_log += (line.rstrip('\n'))
+                        if not "}" in line:
+                            last_log += "},"
+                        else:
+                            last_log += ","
+                    else:
+                        pass
+        return last_log.rstrip(',')
 
 
 class StateWaitingForOvershoot(State):
@@ -454,7 +520,9 @@ class StateWaitingForOvershoot(State):
             State.enter(self, machine)
             machine.breath.set_color(LED_PURPLE)
         except Exception as e:
-            log.exception(str(e))
+            #log.exception(str(e))
+            machine.lastError = str(e)
+            machine.go_to_state('error')
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -462,17 +530,15 @@ class StateWaitingForOvershoot(State):
 
     def update(self, machine):
         if State.update(self, machine):
-            # if machine.sensor.trigger:
-            #     machine.sensor.calc_speed()
-            #     # wait 30 seconds for filter to tune in
-            if time.ticks_ms() - machine.restartTimeMs > WAIT_FOR_TUNING:
+            # wait 30 seconds for filter to tune in
+            now = time.ticks_ms()
+            if now >= machine.restartTimeMs + WAIT_FOR_TUNING:
                 if machine.speed() > g_THRESHOLD:
                     machine.go_to_state('measuringPaused')
                     return
             else:
                 print("sensor tuning in with ({})".format(machine.speed()))
 
-            now = time.ticks_ms()
             if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
                 machine.go_to_state('inactive')
                 return
@@ -569,17 +635,15 @@ class StateInactive(State):  # todo check what happens in original code
 
     def update(self, machine):
         if State.update(self, machine):
-            # if machine.sensor.trigger:
-            #     machine.sensor.calc_speed()
             #     # wait 30 seconds for filter to tune in
-            if time.ticks_ms() - machine.restartTimeMs > WAIT_FOR_TUNING:
+            now = time.ticks_ms()
+            if now >= machine.restartTimeMs + WAIT_FOR_TUNING:
                 if machine.speed() > g_THRESHOLD:
                     machine.go_to_state('measuringPaused')
                     return
             else:
                 print("sensor tuning in with ({})".format(machine.speed()))
 
-            now = time.ticks_ms()
             if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
                 machine.go_to_state('inactive')  # todo check if this can be simplified
                 return
@@ -644,11 +708,12 @@ class StateError(State):
             machine.breath.set_color(LED_RED)
 
             if machine.lastError:
-                log.error("[Core] Last error: {}".format(machine.lastError))
+                log.error("Last error: {}".format(machine.lastError))
             else:
-                log.error("[Core] Unknown error.")
+                log.error("Unknown error.")
 
             machine.sim.deinit()
+            machine.lte.deinit(detach=True, reset=True)
 
         finally:
             pycom_machine.reset()
@@ -706,7 +771,7 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
     print("SENDING")
 
     # make the elevate data package
-    event.update({ 'properties.variables.ts': { 'v': current_time } })
+    event.update({ 'properties.variables.ts': { 'v': current_time }})
     elevate_serialized = serialize_json(event)
     log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
 
@@ -735,16 +800,46 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
         if not 200 <= status_code < 300:
             log.error("backend (UPP) returned error: ({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
     except Exception as e:
-        log.exception(str(e))
+        # log.exception(str(e))
         machine.lastError = str(e)
         machine.go_to_state('error')
         return
 
     # todo: can this be moved into the try/except block above?
     try:
-        log.debug("NIOMON:({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
+        if status_code == 200:
+            log.debug("NIOMON response:({})".format(status_code))
+        else:
+            log.debug("NIOMON response:({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
     except Exception as e:
         log.exception(repr(e))
+
+
+def _send_emergency_event(machine, event: dict, current_time: float):    # todo handle errors differently
+    """
+    # Send an emergency event to elevate
+    :param machine: state machine, which provides the connection and the ubirch protocol
+    :param event: name of the event to send
+    :param current_time: time variable
+    :return:
+    """
+    print("SENDING")
+
+    # make the elevate data package
+    event.update({ 'properties.variables.ts': { 'v': current_time }})
+    log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
+
+    try:
+        machine.connection.ensure_connection()
+        # send data message to data service, with reconnects/modem resets if necessary
+        status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
+                                                    machine.elevate_api.send_data, machine.uuid,
+                                                    json.dumps(event))
+        log.debug("RESPONSE: {}".format(content))
+
+    except Exception as e:
+        log.exception(str(e))
+        return
 
 
 def _get_state_from_backend(machine):
@@ -763,7 +858,7 @@ def _get_state_from_backend(machine):
                                                         machine.elevate_api.get_state, machine.uuid, '')
         log.debug("Elevate backend returned log level: {}, state: {}".format(level, state))
     except Exception as e:
-        log.exception(str(e))
+        # log.exception(str(e))
         machine.lastError = str(e)
         machine.go_to_state('error')
         # pycom_machine.reset()
@@ -776,7 +871,7 @@ def _get_state_from_backend(machine):
 
 #         'isWorking'#(Bool) DONE
 #         'lastActivityOn' #(date) todo
-#         'lastLogContent' #(String) todo
+#         'lastLogContent' #(String) DONE for ERRORs
 #         'firmwareVersion'# (String) todo currently fixed string
 #         'hardwareVersion'# (String) todo currently fixed string
 #         'cellSignalPower'# (Number) DONE
@@ -790,7 +885,7 @@ def _get_state_from_backend(machine):
 #         'usedMemory'# (Number) todo
 #         'totalAvailableStorage'# (Number) todo
 #         'usedStorage'# (Number) todo
-#         'lastError' # (string)
+#         'lastError' # (string) DONE in case of emergency
 #         'resetCause' # (string) DONE
 
 def _log_switcher(level: str):

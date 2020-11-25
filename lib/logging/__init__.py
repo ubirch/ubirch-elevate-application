@@ -4,6 +4,9 @@ import utime
 import sys
 import uio
 
+# filename for the log
+FILENAME = "/flash/my_log.txt"
+
 CRITICAL = 50
 ERROR    = 40
 WARNING  = 30

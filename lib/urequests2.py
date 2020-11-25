@@ -59,6 +59,7 @@ def request(method, url, data=None, json=None, headers={}, stream=None, parse_he
         if ":" in host:
             host, port = host.split(":", 1)
             port = int(port)
+
         usocket.dnsserver(1, '8.8.4.4')
         usocket.dnsserver(0, '8.8.8.8')
         ai = usocket.getaddrinfo(host, port, 0, usocket.SOCK_STREAM)
