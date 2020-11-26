@@ -1,11 +1,12 @@
 """
-TODO
+API to the Elevate backend, which allows to perform send and get requests.
+Since this API is used in the same way as the ubirch_api, the signature of the methods is identical
 """
 from uuid import UUID
 
 import ujson as json
 
-import lib.urequests2 as requests
+import lib.urequests as requests
 
 
 def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):
@@ -47,10 +48,8 @@ class ElevateAPI:
 
     def send_data(self, uuid: UUID, message: bytes) -> (int, bytes):
         """
-        TODO
-        Send a JSON data message to the ubirch data service. Requires encoding before sending.
-        :param uuid: the sender's UUID
-        :param auth: the ubirch backend auth token (ubirchAuthToken)
+        Send a JSON data message to the elevate data service.
+        :param uuid: UNUSED
         :param message: the encoded JSON message to send to the data service
         :return: the server response status code, the server response content (body)
         """
@@ -62,8 +61,10 @@ class ElevateAPI:
 
     def get_state(self, uuid: UUID, message: bytes) -> (int, str, str):
         """
-        TODO
-        :return:
+        Get the state information from the elevate backend.
+        :param uuid: UNUSED
+        :param message: UNUSED
+        :return: the server response status code, logging level, state-machine state
         """
         log_level = ""
         state = ""
@@ -74,7 +75,7 @@ class ElevateAPI:
                             headers=self._elevate_headers)
         if r == 200:
             state_info = json.loads(c)
-            print("dump", json.dumps(state_info))
+            # print("dump", json.dumps(state_info))
             if 'properties' in state_info:
                 props = state_info['properties']
                 # print(props)
@@ -84,7 +85,7 @@ class ElevateAPI:
                     state = props['firmwareState']
         return r, log_level, state
 
-    """
+    """ EXAMPLE server response:
     {
         "_id":"KBkgm6qDZE2i94c2Q",
         "properties":{
@@ -109,9 +110,3 @@ class ElevateAPI:
         "related":{}
     }
     """
-
-    def generate_data_package(self, x, y, z):
-        """
-        TODO
-        """
-        print("TODO")

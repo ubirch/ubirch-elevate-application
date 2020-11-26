@@ -20,9 +20,14 @@ import ujson as json
 import logging
 import ubirch
 
+# set watchdog: if execution hangs/takes longer than 'timeout' an automatic reset is triggered
+# we need to do this as early as possible in case an import cause a freeze for some reason
+wdt = machine.WDT(timeout=5 * 60 * 1000)  # we set it to 5 minutes here and will reconfigure it when we have loaded the configuration
+wdt.feed()  # we only feed it once since this code hopefully finishes with deepsleep (=no WDT) before reset_after_ms
+
 
 STANDARD_DURATION_MS = 500
-WAIT_FOR_TUNING = 30000
+WAIT_FOR_TUNING = 10000
 
 log = logging.getLogger()
 
@@ -108,12 +113,10 @@ class StateMachine(object):
         :param state_name: new state to go to.
         """
         if self.state:
-            log.debug('> > Exiting {} A:{} L:{} I:{}'.format(self.state.name, self.timerActivity, self.timerLastActivity,
-                                                         self.timerInactivity))
+            log.debug('Exiting {}'.format(self.state.name))
             self.state.exit(self)
         self.state = self.states[state_name]
-        log.debug('> > Entering {} A:{} L:{} I:{}'.format(self.state.name, self.timerActivity, self.timerLastActivity,
-                                                      self.timerInactivity))
+        log.debug('Entering {}'.format(self.state.name))
         self.state.enter(self)
 
     def update(self):
@@ -129,51 +132,9 @@ class StateMachine(object):
                 self.lastError = str(e)
                 self.go_to_state('error')
 
-    # When pausing, don't exit the state
-    def pause(self):
-        """
-        Pause the current state. # TODO currently not in use, maybe not necessary.
-        """
-        self.state = self.states['paused']
-        log.debug('> > Pausing')
-        self.state.enter(self)
-
-    # When resuming, don't re-enter the state
-    def resume_state(self, state_name):
-        """
-        Resume the paused state. # TODO currently not in use, maybe not necessary.
-        :param state_name: indicating the state to resume.
-        :note this function does not go through state.enter(),
-        but directly back into the state.
-        """
-        if self.state:
-            log.debug('> > Exiting %s' % (self.state.name))
-            self.state.exit(self)
-        self.state = self.states[state_name]
-        log.debug('> > Resuming %s' % (self.state.name))
-
-    def reset_state_machine(self):
-        """
-        As indicated, reset the machines system's variables. # TODO currently not used.
-        """
-        log.debug('> > Resetting the machine')
-
-    def enable_interrupt(self):
-        """
-        Enable the Accelerometer Interrupt for fifo buffer. # TODO currently not in use, maybe unnecessary.
-        """
-        self.sensor.pysense.accelerometer.restart_fifo()
-        self.sensor.pysense.accelerometer.enable_fifo_interrupt(self.sensor.accelerometer_interrupt_cb)
-
-    def disable_interrupt(self):
-        """
-        Disable the Accelerometer Interrupt for fifo interrupt. # TODO currently not used, maybe not necessary.
-        """
-        self.sensor.pysense.accelerometer.enable_fifo_interrupt(handler=None)
-
 
 ################################################################################
-# States  todo include error handling here
+# States
 
 class State(object):
     """
@@ -194,6 +155,7 @@ class State(object):
     def enter(self, machine):
         """
         Enter a specific state. This is called, when a new state is entered.
+        Get the timestamp for entering, so it can be used in all states
         :param machine: state machine, which has the state
         """
         self.enter_timestamp = time.ticks_ms()
@@ -209,7 +171,7 @@ class State(object):
     def update(self, machine):
         """
         Update the current state, which means to run through the update routine.
-        Also breath with the LED.
+        Breath with the LED. and calculate the speed from the measured accelerometer values.
         :param machine: state machine, which has the state.
         :return: True, to indicate, the function was called.
         """
@@ -232,43 +194,38 @@ class StateInitSystem(State):
         return 'initSystem'
 
     def enter(self, machine):
-        global COMING_FROM_DEEPSLEEP
         State.enter(self, machine)
         machine.breath.set_color(LED_TURQUOISE)
 
         try:
-            # reset modem on any non-normal loop (modem might be in a strange state)
-            if not COMING_FROM_DEEPSLEEP:
-                log.warning("++ not coming from sleep, resetting modem")
-                reset_modem(machine.lte)
+            # reset modem (modem might be in a strange state)
+            log.warning("not coming from sleep, resetting modem")
+            reset_modem(machine.lte)
 
-            log.info("++ getting IMSI")
+            log.info("getting IMSI")
             imsi = get_imsi(machine.lte)
             log.info("IMSI: " + imsi)
         except Exception as e:
-            log.exception("\tERROR setting up modem (%s)", str(e))
+            log.exception("failed setting up modem {}".format(str(e)))
             while True: # watchdog will get out of this
                 pycom_machine.idle()
 
-        # write IMSI to SD card
-        if not COMING_FROM_DEEPSLEEP and SD_CARD_MOUNTED: store_imsi(imsi)
         # load configuration, blocks in case of failure
-        log.info("++ loading config")
+        log.info("loading config")
         try:
-            machine.cfg = load_config(sd_card_mounted=SD_CARD_MOUNTED)
+            machine.cfg = load_config()
 
             machine.debug = machine.cfg['debug']  # set debug level
-            # if machine.debug: print("\t" + repr(machine.cfg))
-
             machine.connection = get_connection(machine.lte, machine.cfg)  # initialize connection object depending on config
             machine.api = ubirch.API(machine.cfg)  # set up API for backend communication
         except Exception as e:
-            log.exception("\tERROR loading configuration (%s)", str(e)) #todo figure out how to behave and not to make a BRICK
+            log.exception("failed loading configuration {}".format(str(e)))
+            # generate and try to send an emergency event
             event = ({
                 'properties.variables.lastError': {'value': str(e)}
             })
             _send_emergency_event(machine, event, time.time())
-            while True:
+            while True: # watchdog will get out of here
                 pycom_machine.idle()
 
         # create an instance of the elevate API, which needs the configuration
@@ -299,14 +256,8 @@ class StateInitSystem(State):
                 machine.go_to_state('error')
                 return
 
-        # # disconnect from LTE connection before accessing SIM application
-        # # (this is only necessary if we are connected via LTE)
-        # if isinstance(machine.connection, NB_IoT):
-        #     log.info("\tdisconnecting")
-        #     machine.connection.disconnect()  # todo, check the necessity of this
-
         # initialise ubirch SIM protocol
-        log.info("++ initializing ubirch SIM protocol")
+        log.info("Initializing ubirch SIM protocol")
         try:
             machine.sim = ElevateSim(lte=machine.lte, at_debug=machine.debug)
         except Exception as e:
@@ -318,12 +269,11 @@ class StateInitSystem(State):
         try:
             machine.sim.sim_auth(machine.pin)
         except Exception as e:
-            #log.exception(str(e))
-            # pycom_machine.reset() # TODO check this again, what to do, if PN is unknown
             # if PIN is invalid, there is nothing we can do -> block
             if isinstance(e, ValueError):
                 machine.breath.set_color(COLOR_SIM_FAIL)
                 log.critical("PIN is invalid, can't continue")
+                # create an emergency event and try to send it
                 event = ({
                     'properties.variables.lastError': {'value': 'PIN is invalid, can\'t continue'}
                 })
@@ -398,8 +348,6 @@ class StateConnecting(State):
             enable_time_sync()
             log.info("\twaiting for time sync")
             wait_for_sync(print_dots=True)
-            # set the restart timer for filter tuning
-            machine.restartTimeMs = time.ticks_ms()
 
         except Exception as e:
             machine.lastError = str(e)
@@ -447,6 +395,8 @@ class StateSendingDiagnostics(State):
         _send_event(machine, event, time.time())
 
     def exit(self, machine):
+        # set the restart timer for filter tuning
+        machine.restartTimeMs = time.ticks_ms()
         State.exit(self, machine)
 
     def update(self, machine):
@@ -457,23 +407,25 @@ class StateSendingDiagnostics(State):
 
     def _read_log(self, num_errors:int=3):
         """
-        Read the last ERRORs from log
+        Read the last ERRORs from log and form a string of json like list.
         :param num_errors: number of errors to return
         :return: String of the last errors
         :example: {'t':'1970-01-01T00:00:23Z','l':'ERROR','m':...}
         """
+        BACKUP_COUNT = 4 + 1
         last_log = ""
         error_counter = 0
+        file_index = 1
         filename = logging.FILENAME.lstrip('/flash/')
         if filename in os.listdir():
             with open(logging.FILENAME, 'r') as reader:
-                print("file opened")
                 lines = reader.readlines()
                 for line in reversed(lines):
                     # only take the error messages from the log
                     if "ERROR" in line[:42]: # only look at the beginning of the line
                         error_counter += 1
                         if error_counter > num_errors:
+                            file_index = BACKUP_COUNT
                             break
                         last_log += (line.rstrip('\n'))
                         # check if the message was closed with "}", if not, add it to ensure json
@@ -483,23 +435,26 @@ class StateSendingDiagnostics(State):
                             last_log += ","
                     else:
                         pass
-        if (filename + '.1') in os.listdir():
-            with open((logging.FILENAME + '.1'), 'r') as reader:
-                print("file opened")
-                lines = reader.readlines()
-                for line in reversed(lines):
-                    # only take the error messages from the log
-                    if "ERROR" in line[:42]: # only look at the beginning of the line
-                        error_counter += 1
-                        if error_counter > num_errors:
-                            break
-                        last_log += (line.rstrip('\n'))
-                        if not "}" in line:
-                            last_log += "},"
+        while file_index < BACKUP_COUNT:
+            if (filename + '.{}'.format(file_index)) in os.listdir():
+                with open((logging.FILENAME + '.{}'.format(file_index)), 'r') as reader:
+                    # print("file {} opened".format(file_index))
+                    lines = reader.readlines()
+                    for line in reversed(lines):
+                        # only take the error messages from the log
+                        if "ERROR" in line[:42]: # only look at the beginning of the line
+                            error_counter += 1
+                            if error_counter > num_errors:
+                                file_index = BACKUP_COUNT
+                                break
+                            last_log += (line.rstrip('\n'))
+                            if not "}" in line:
+                                last_log += "},"
+                            else:
+                                last_log += ","
                         else:
-                            last_log += ","
-                    else:
-                        pass
+                            pass
+            file_index += 1
         return last_log.rstrip(',')
 
 
@@ -525,8 +480,8 @@ class StateWaitingForOvershoot(State):
             machine.go_to_state('error')
 
     def exit(self, machine):
-        State.exit(self, machine)
         machine.timerInactivity = time.time()
+        State.exit(self, machine)
 
     def update(self, machine):
         if State.update(self, machine):
@@ -573,9 +528,8 @@ class StateMeasuringPaused(State):
         _send_event(machine, event, time.time())
 
     def exit(self, machine):
-        State.exit(self, machine)
         # save the time of this activity for the next time as last activity
-        machine.timerLastActivity = machine.timerActivity
+        machine.timerLastActivity = machine.timerActivity # todo check if still needed
         # reset the speed values for next time
         machine.sensor.speed_max[0] = 0.0
         machine.sensor.speed_max[1] = 0.0
@@ -586,18 +540,16 @@ class StateMeasuringPaused(State):
 
         machine.sensor.accel_max = 0.0
         machine.sensor.accel_min = 0.0
+        State.exit(self, machine)
 
     def update(self, machine):
         if State.update(self, machine):
-            # if machine.sensor.trigger:
-            #     machine.sensor.calc_speed()
-
             now = time.ticks_ms()
             if now >= self.enter_timestamp + machine.OvershotDetectionPauseIntervalMs:
                 machine.go_to_state('waitingForOvershoot')
 
 
-class StateInactive(State):  # todo check what happens in original code
+class StateInactive(State):
     """
     Inactive State,
     at entering, the current state is get from the backend
@@ -627,15 +579,15 @@ class StateInactive(State):  # todo check what happens in original code
         _send_event(machine, event, time.time())
         self.new_log_level, self.new_state = _get_state_from_backend(machine)
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
-        log.debug("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
+        log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
 
     def exit(self, machine):
-        State.exit(self, machine)
         machine.timerInactivity = time.time() # todo check if this is the correct time
+        State.exit(self, machine)
 
     def update(self, machine):
         if State.update(self, machine):
-            #     # wait 30 seconds for filter to tune in
+            # wait for filter to tune in
             now = time.ticks_ms()
             if now >= machine.restartTimeMs + WAIT_FOR_TUNING:
                 if machine.speed() > g_THRESHOLD:
@@ -645,7 +597,7 @@ class StateInactive(State):  # todo check what happens in original code
                 print("sensor tuning in with ({})".format(machine.speed()))
 
             if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
-                machine.go_to_state('inactive')  # todo check if this can be simplified
+                machine.go_to_state('inactive')
                 return
 
             self._adjust_level_state(machine, self.new_log_level, self.new_state)
@@ -703,7 +655,7 @@ class StateError(State):
         return 'error'
 
     def enter(self, machine):
-        try: # just build tha in, because of recent error, which caused the controller to be BRICKED TODO: check this again
+        try: # just build that in, because of recent error, which caused the controller to be BRICKED TODO: check this again
             State.enter(self, machine)
             machine.breath.set_color(LED_RED)
 
@@ -760,9 +712,9 @@ class StateBootloader(State):
 
 ################################################################################
 
-def _send_event(machine, event: dict, current_time: float):    # todo handle errors differently
+def _send_event(machine, event: dict, current_time: float):
     """
-    # Send the data to elevate and the UPP to ubirch # TODO, make this configurable
+    Send the data to elevate and the UPP to ubirch
     :param machine: state machine, which provides the connection and the ubirch protocol
     :param event: name of the event to send
     :param current_time: time variable
@@ -805,7 +757,6 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
         machine.go_to_state('error')
         return
 
-    # todo: can this be moved into the try/except block above?
     try:
         if status_code == 200:
             log.debug("NIOMON response:({})".format(status_code))
@@ -815,7 +766,7 @@ def _send_event(machine, event: dict, current_time: float):    # todo handle err
         log.exception(repr(e))
 
 
-def _send_emergency_event(machine, event: dict, current_time: float):    # todo handle errors differently
+def _send_emergency_event(machine, event: dict, current_time: float):
     """
     # Send an emergency event to elevate
     :param machine: state machine, which provides the connection and the ubirch protocol
@@ -848,7 +799,6 @@ def _get_state_from_backend(machine):
     :param machine: state machine, providing the connection
     :return: log level and new state
     """
-    # machine.disable_interrupt()
     level = ""
     state = ""
 
@@ -856,12 +806,9 @@ def _get_state_from_backend(machine):
     try:
         status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                         machine.elevate_api.get_state, machine.uuid, '')
-        log.debug("Elevate backend returned log level: {}, state: {}".format(level, state))
     except Exception as e:
-        # log.exception(str(e))
         machine.lastError = str(e)
         machine.go_to_state('error')
-        # pycom_machine.reset()
         # communication worked in general, now check server response
         if not 200 <= status_code < 300:
             log.error("Elevate backend returned HTTP error code {}".format(status_code))
@@ -888,10 +835,10 @@ def _get_state_from_backend(machine):
 #         'lastError' # (string) DONE in case of emergency
 #         'resetCause' # (string) DONE
 
-def _log_switcher(level: str):
+def _log_switcher(log_level: str):
     """
     Logging level switcher for handling different logging levels from backend.
-    :param level: ne logging level from backend
+    :param log_level: ne logging level from backend
     :return: translated logging level for logger
     """
     switcher = {
@@ -900,7 +847,7 @@ def _log_switcher(level: str):
         'info': logging.INFO,
         'debug': logging.DEBUG
     }
-    return switcher.get(level, logging.INFO)
+    return switcher.get(log_level, logging.INFO)
 
 
 def _state_switcher(state: str):
@@ -939,16 +886,4 @@ def _reset_cause_switcher(reset_cause: int):
 
 # todo find a good place for these functions
 RESET_REASON = _reset_cause_switcher(pycom_machine.reset_cause())
-if RESET_REASON == 'Deepsleep':
-    COMING_FROM_DEEPSLEEP = True
-else:
-    COMING_FROM_DEEPSLEEP = False
-
-# mount SD card if there is one
-print("++ mounting SD")
-SD_CARD_MOUNTED = mount_sd()
-if SD_CARD_MOUNTED:
-    print("\tSD card mounted")
-else:
-    print("\tno SD card found")
 

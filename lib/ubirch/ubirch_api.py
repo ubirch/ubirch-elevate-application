@@ -1,6 +1,6 @@
 from uuid import UUID
 
-import urequests2 as requests
+import urequests as requests
 from ubinascii import b2a_base64
 
 
@@ -35,7 +35,6 @@ class API:
         """
         Send data to the authentication service. Requires encoding before sending.
         :param uuid: the sender's UUID
-        :param auth: the ubirch backend auth token (ubirchAuthToken)
         :param upp: the msgpack encoded data to send (UPP)
         :return: the server response status code, the server response content (body)
         """
@@ -50,7 +49,6 @@ class API:
         """
         Send a JSON data message to the ubirch data service. Requires encoding before sending.
         :param uuid: the sender's UUID
-        :param auth: the ubirch backend auth token (ubirchAuthToken)
         :param message: the encoded JSON message to send to the data service
         :return: the server response status code, the server response content (body)
         """

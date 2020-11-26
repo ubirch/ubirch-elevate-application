@@ -106,7 +106,6 @@ def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_f
                 except Exception as e:
                     # TODO: log/print exception?
                     print("\tsending failed: {}".format(e))
-                    # sys.print_exception(e)#TODO remove me
                     # (continues to top of send_attempts loop)
             else:
                 # all send attempts used up

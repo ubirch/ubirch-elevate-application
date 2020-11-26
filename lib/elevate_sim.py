@@ -15,7 +15,7 @@ class ElevateSim(SimProtocol):
 
     def __del__(self):
         super(ElevateSim, self).__del__()
-        print("deleted")
+        print("ElevateSim deleted")
 
     def get_signal_quality(self, debug_print=False):
         """
@@ -57,7 +57,6 @@ class ElevateSim(SimProtocol):
             self._finish_AT_session()
 
         if code == 'OK':
-
             response = data.split(',')
             if debug_print: print(">> " + repr(data))
             return repr(data)
