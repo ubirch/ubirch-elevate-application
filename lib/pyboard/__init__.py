@@ -13,7 +13,6 @@ class Pysense(Pycoproc):
         self.accelerometer = LIS2HH12(self)
         self.light = LTR329ALS01(self).light
         self.humidity = SI7006A20(self)
-        self.barometer = MPL3115A2(self, mode=PRESSURE)
         self.altimeter = MPL3115A2(self, mode=ALTITUDE)
         self.voltage = self.read_battery_voltage
 
