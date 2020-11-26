@@ -203,6 +203,8 @@ def serialize_json(msg: dict) -> bytes:
                 serialized += "true"
             else:
                 serialized += "false"
+        elif value is None:
+            serialized += "null"
         else:
             raise Exception("unsupported data type {} for serialization in json message".format(value_type))
         serialized += ","
