@@ -56,7 +56,7 @@ class StateMachine(object):
                        psm_active_value=5, psm_active_unit=LTE.PSM_ACTIVE_2S)
             self.breath = LedBreath()
         except OSError as e:
-            log.error(str(e))
+            log.exception(str(e))
             self.lastError = str(e)
             # self.go_to_state('error')
             pycom_machine.reset()
@@ -129,7 +129,6 @@ class StateMachine(object):
                 self.state.update(self)
             except Exception as e:
                 log.exception('Uncaught exception while processing state %s: %s', self.state, str(e))
-                self.lastError = str(e)
                 self.go_to_state('error')
 
 
@@ -475,8 +474,7 @@ class StateWaitingForOvershoot(State):
             State.enter(self, machine)
             machine.breath.set_color(LED_PURPLE)
         except Exception as e:
-            #log.exception(str(e))
-            machine.lastError = str(e)
+            log.exception(str(e))
             machine.go_to_state('error')
 
     def exit(self, machine):
@@ -661,8 +659,6 @@ class StateError(State):
 
             if machine.lastError:
                 log.error("Last error: {}".format(machine.lastError))
-            else:
-                log.error("Unknown error.")
 
             machine.sim.deinit()
             machine.lte.deinit(detach=True, reset=True)
@@ -752,8 +748,7 @@ def _send_event(machine, event: dict, current_time: float):
         if not 200 <= status_code < 300:
             log.error("backend (UPP) returned error: ({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
     except Exception as e:
-        # log.exception(str(e))
-        machine.lastError = str(e)
+        log.exception(str(e))
         machine.go_to_state('error')
         return
 
@@ -806,12 +801,12 @@ def _get_state_from_backend(machine):
     try:
         status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                         machine.elevate_api.get_state, machine.uuid, '')
-    except Exception as e:
-        machine.lastError = str(e)
-        machine.go_to_state('error')
         # communication worked in general, now check server response
         if not 200 <= status_code < 300:
             log.error("Elevate backend returned HTTP error code {}".format(status_code))
+    except Exception as e:
+        log.exception(str(e))
+        machine.go_to_state('error')
 
     return level, state
 

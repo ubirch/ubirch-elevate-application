@@ -32,8 +32,6 @@ def get_pyboard(type: str) -> Pyboard:  # TODO maybe clean up here
         return Pysense()
     elif type == "pytrack":
         return Pytrack()
-    elif type == "sht31":
-        return Sht31()
     else:
         raise Exception("Expansion board type {} not supported. Supported types: 'pysense' and 'pytrack'".format(type))
 

@@ -71,7 +71,7 @@ class Logger:
     def exc(self, e, msg, *args):
         buf = uio.StringIO()
         sys.print_exception(e, buf)
-        self.log(ERROR, msg + "\n" + buf.getvalue(), *args)
+        self.log(ERROR, msg + ' ' + buf.getvalue().replace('\n', ' ').replace('Traceback (most recent call last):', ': TR:'), *args) # the traceback is shorter and in one line
 
     def exception(self, msg, *args):
         self.exc(sys.exc_info()[1], msg, *args)

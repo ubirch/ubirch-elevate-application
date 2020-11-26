@@ -2,6 +2,7 @@
 #  check all print statements
 #  adopt README.md
 import utime as time
+import micropython
 
 from logging.handlers import RotatingFileHandler
 
@@ -25,6 +26,9 @@ server.deinit() # disable the server
 # disable the wifi on boot
 pycom.wifi_on_boot(False)
 
+# allocate extra buffer for emergency exception
+micropython.alloc_emergency_exception_buf(128)
+
 # bigger thread stack needed for the requests module used in UbirchDataClient (default: 4096)
 # _thread.stack_size(16384)
 
@@ -45,6 +49,7 @@ log = logging.getLogger()
 log.addHandler(fileHandler)
 
 log.warning("coming from reset")
+
 
 class Main:
     def __init__(self) -> None:
@@ -75,9 +80,12 @@ class Main:
                 wdt.feed()
             except Exception as e:
                 print("\r\n\n\n\033[1;31mMAIN ERROR CAUGHT:  {}\033[0m\r\n\n\n".format(repr(e)))
+                try:
+                    log.exception(str(e))
+                finally:
+                    pass
                 time.sleep(30)
                 machine.reset()
-
 
 
 main = Main()
