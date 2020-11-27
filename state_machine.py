@@ -131,6 +131,9 @@ class StateMachine(object):
                 log.exception('Uncaught exception while processing state %s: %s', self.state, str(e))
                 self.go_to_state('error')
 
+    def hard_reset(self):
+        self.sensor.pysense.reset_cmd()
+
 
 ################################################################################
 # States
@@ -389,7 +392,8 @@ class StateSendingDiagnostics(State):
 
         last_log = self._read_log()
         print("LOG: {}".format(last_log))
-        event.update({'properties.variables.lastLogContent':{'value': last_log}})
+        if last_log != "":
+            event.update({'properties.variables.lastLogContent':{'value': last_log}})
 
         _send_event(machine, event, time.time())
 
@@ -490,7 +494,8 @@ class StateWaitingForOvershoot(State):
                     machine.go_to_state('measuringPaused')
                     return
             else:
-                print("sensor tuning in with ({})".format(machine.speed()))
+                machine.speed()
+                # print("sensor tuning in with ({})".format(machine.speed()))
 
             if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
                 machine.go_to_state('inactive')
@@ -592,7 +597,8 @@ class StateInactive(State):
                     machine.go_to_state('measuringPaused')
                     return
             else:
-                print("sensor tuning in with ({})".format(machine.speed()))
+                machine.speed()
+                # print("sensor tuning in with ({})".format(machine.speed()))
 
             if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
                 machine.go_to_state('inactive')
@@ -664,6 +670,8 @@ class StateError(State):
             machine.lte.deinit(detach=True, reset=True)
 
         finally:
+            machine.hard_reset()
+            log.error("I should not get here")
             pycom_machine.reset()
             # todo maybe try to send the error to backend, but only once, wait for long time?
 
@@ -737,7 +745,12 @@ def _send_event(machine, event: dict, current_time: float):
         status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                     machine.elevate_api.send_data, machine.uuid,
                                                     json.dumps(event))
-        log.debug("RESPONSE: {}".format(content))
+        response = json.loads(content)
+        if 'result' in response:
+            if response['result']:
+                log.debug("Elevate received OK= {}".format(content))
+        else: # something went wrong
+            log.exception("Sending to elevate failed: {}".format(content))
 
         machine.connection.ensure_connection()
         # send UPP to the ubirch authentication service to be anchored to the blockchain
@@ -751,6 +764,9 @@ def _send_event(machine, event: dict, current_time: float):
         log.exception(str(e))
         machine.go_to_state('error')
         return
+
+    finally:
+        machine.connection.disconnect()
 
     try:
         if status_code == 200:
@@ -787,6 +803,10 @@ def _send_emergency_event(machine, event: dict, current_time: float):
         log.exception(str(e))
         return
 
+    finally:
+        machine.connection.disconnect()
+
+
 
 def _get_state_from_backend(machine):
     """
@@ -799,6 +819,7 @@ def _get_state_from_backend(machine):
 
     # send data message to data service, with reconnects/modem resets if necessary
     try:
+        machine.connection.ensure_connection()
         status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                         machine.elevate_api.get_state, machine.uuid, '')
         # communication worked in general, now check server response
@@ -807,6 +828,10 @@ def _get_state_from_backend(machine):
     except Exception as e:
         log.exception(str(e))
         machine.go_to_state('error')
+
+    finally:
+        machine.connection.disconnect()
+
 
     return level, state
 

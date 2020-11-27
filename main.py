@@ -85,6 +85,10 @@ class Main:
                 finally:
                     pass
                 time.sleep(30)
+                # hard reset everything
+                from lib.pyboard.pysense import Pysense
+                py = Pysense()
+                py.reset_cmd()
                 machine.reset()
 
 
