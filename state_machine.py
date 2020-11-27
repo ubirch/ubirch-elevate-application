@@ -748,7 +748,7 @@ def _send_event(machine, event: dict, current_time: float):
             with open(UPP_BACKLOG_FILE, 'r') as file:
                 for line in file:
                     upps.append(line.rstrip("\n"))
-        upps.append(upp.decode())
+        upps.append(ubinascii.hexlify(upp).decode())
 
         # send events
         machine.connection.ensure_connection()
@@ -779,7 +779,7 @@ def _send_event(machine, event: dict, current_time: float):
             for upp_str in upps:
                 # send UPP to the ubirch authentication service to be anchored to the blockchain
                 status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                             machine.api.send_upp, machine.uuid, upp_str.encode())
+                                                             machine.api.send_upp, machine.uuid, ubinascii.unhexlify(upp_str))
 
                 log.debug("NIOMON RESPONSE: ({}) {}".format(status_code, "" if status_code == 200 else ubinascii.hexlify(content).decode()))
 
@@ -817,7 +817,7 @@ def write_backlogs(events: list, upps: list):
     if upps:
         with open(UPP_BACKLOG_FILE, 'w') as file:
             for upp in upps:
-                file.write(str(upp) + "\n")
+                file.write(upp + "\n")
     elif UPP_BACKLOG_FILE in os.listdir():  # if there are no unsent UPPs, remove backlog file
         os.remove(UPP_BACKLOG_FILE)
 
