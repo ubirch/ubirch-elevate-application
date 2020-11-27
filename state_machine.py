@@ -736,11 +736,19 @@ def _send_event(machine, event: dict, current_time: float):
 
         # get event backlog from flash and add new event
         events = []
-        with open(EVENT_BACKLOG_FILE, 'r') as file:
-            for line in file:
-                events.append(line.rstrip("\n"))
-
+        if EVENT_BACKLOG_FILE in os.listdir():
+            with open(EVENT_BACKLOG_FILE, 'r') as file:
+                for line in file:
+                    events.append(line.rstrip("\n"))
         events.append(json.dumps(event))
+
+        # get UPP backlog from flash and add new UPP
+        upps = []
+        if UPP_BACKLOG_FILE in os.listdir():
+            with open(UPP_BACKLOG_FILE, 'r') as file:
+                for line in file:
+                    upps.append(line.rstrip("\n"))
+        upps.append(upp.decode())
 
         # send events
         machine.connection.ensure_connection()
@@ -754,38 +762,64 @@ def _send_event(machine, event: dict, current_time: float):
                 log.debug("RESPONSE: {}".format(content))
 
                 if not 200 <= status_code < 300:
-                    raise Exception("Sending event failed with status code {}: {}".format(status_code, content))
+                    raise Exception("Sending event failed with status code {}: {}".format(status_code, content))    # FIXME this will make the state machine unnecessarily go to error state
 
                 # event was sent successfully and can be removed from backlog
                 events.remove(event_str)
 
-        except Exception:
-            # sending failed, write unsent events to backlog in flash
-            with open(EVENT_BACKLOG_FILE, 'w') as file:
-                for event_str in events:
-                    file.write(event_str + "\n")
+        except:
+            # sending failed
+            write_backlogs(events, upps)
             raise
 
+        # send UPPs
         machine.connection.ensure_connection()
-        # send UPP to the ubirch authentication service to be anchored to the blockchain
-        status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                     machine.api.send_upp, machine.uuid, upp)
 
-        # communication worked in general, now check server response
-        if not 200 <= status_code < 300:
-            log.error("backend (UPP) returned error: ({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
+        try:
+            for upp_str in upps:
+                # send UPP to the ubirch authentication service to be anchored to the blockchain
+                status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
+                                                             machine.api.send_upp, machine.uuid, upp_str.encode())
+
+                log.debug("NIOMON RESPONSE: ({}) {}".format(status_code, "" if status_code == 200 else ubinascii.hexlify(content).decode()))
+
+                # communication worked in general, now check server response
+                if not 200 <= status_code < 300 and not status_code == 409:
+                    raise Exception("Sending UPP failed with status code {}: {}".format(status_code, ubinascii.hexlify(content).decode()))    # FIXME this will make the state machine unnecessarily go to error state
+
+                # UPP was sent successfully and can be removed from backlog
+                upps.remove(upp_str)
+
+        except:
+            # sending failed
+            write_backlogs(events, upps)
+            raise
+
+        # sending successful, backlogs can be removed
+        write_backlogs(events, upps)
+
     except Exception as e:
         log.exception(str(e))
         machine.go_to_state('error')
         return
 
-    try:
-        if status_code == 200:
-            log.debug("NIOMON response:({})".format(status_code))
-        else:
-            log.debug("NIOMON response:({}) {}".format(status_code, ubinascii.hexlify(content).decode()))
-    except Exception as e:
-        log.exception(repr(e))
+
+def write_backlogs(events: list, upps: list):
+    # write unsent events to backlog in flash
+    if events:
+        with open(EVENT_BACKLOG_FILE, 'w') as file:
+            for event in events:
+                file.write(event + "\n")
+    elif EVENT_BACKLOG_FILE in os.listdir():  # if there are no unsent events, remove backlog file
+        os.remove(EVENT_BACKLOG_FILE)
+
+    # write unsent UPPs to backlog in flash
+    if upps:
+        with open(UPP_BACKLOG_FILE, 'w') as file:
+            for upp in upps:
+                file.write(str(upp) + "\n")
+    elif UPP_BACKLOG_FILE in os.listdir():  # if there are no unsent UPPs, remove backlog file
+        os.remove(UPP_BACKLOG_FILE)
 
 
 def _send_emergency_event(machine, event: dict, current_time: float):
