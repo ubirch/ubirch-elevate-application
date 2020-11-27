@@ -762,10 +762,10 @@ def _send_event(machine, event: dict, current_time: float):
                 log.debug("RESPONSE: {}".format(content))
 
                 if not 200 <= status_code < 300:
-                    raise Exception("Sending event failed with status code {}: {}".format(status_code, content))    # FIXME this will make the state machine unnecessarily go to error state
-
-                # event was sent successfully and can be removed from backlog
-                events.remove(event_str)
+                    log.error("BACKEND RESP {}: {}".format(status_code, content))      # TODO check error log content!
+                else:
+                    # event was sent successfully and can be removed from backlog
+                    events.remove(event_str)
 
         except:
             # sending failed
@@ -785,10 +785,10 @@ def _send_event(machine, event: dict, current_time: float):
 
                 # communication worked in general, now check server response
                 if not 200 <= status_code < 300 and not status_code == 409:
-                    raise Exception("Sending UPP failed with status code {}: {}".format(status_code, ubinascii.hexlify(content).decode()))    # FIXME this will make the state machine unnecessarily go to error state
-
-                # UPP was sent successfully and can be removed from backlog
-                upps.remove(upp_str)
+                    log.error("NIOMON RESP {}".format(status_code))
+                else:
+                    # UPP was sent successfully and can be removed from backlog
+                    upps.remove(upp_str)
 
         except:
             # sending failed
