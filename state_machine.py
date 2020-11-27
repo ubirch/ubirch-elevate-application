@@ -28,6 +28,8 @@ wdt.feed()  # we only feed it once since this code hopefully finishes with deeps
 
 STANDARD_DURATION_MS = 500
 WAIT_FOR_TUNING = 10000
+EVENT_BACKLOG_FILE = "event_backlog.txt"
+UPP_BACKLOG_FILE = "upp_backlog.txt"
 
 log = logging.getLogger()
 
@@ -732,12 +734,37 @@ def _send_event(machine, event: dict, current_time: float):
         upp = machine.sim.message_chained(machine.key_name, elevate_serialized, hash_before_sign=True)
         print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
 
+        # get event backlog from flash and add new event
+        events = []
+        with open(EVENT_BACKLOG_FILE, 'r') as file:
+            for line in file:
+                events.append(line.rstrip("\n"))
+
+        events.append(json.dumps(event))
+
+        # send events
         machine.connection.ensure_connection()
-        # send data message to data service, with reconnects/modem resets if necessary
-        status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                    machine.elevate_api.send_data, machine.uuid,
-                                                    json.dumps(event))
-        log.debug("RESPONSE: {}".format(content))
+
+        try:
+            for event_str in events:
+                # send data message to data service, with reconnects/modem resets if necessary
+                status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
+                                                            machine.elevate_api.send_data, machine.uuid,
+                                                            event_str)
+                log.debug("RESPONSE: {}".format(content))
+
+                if not 200 <= status_code < 300:
+                    raise Exception("Sending event failed with status code {}: {}".format(status_code, content))
+
+                # event was sent successfully and can be removed from backlog
+                events.remove(event_str)
+
+        except Exception:
+            # sending failed, write unsent events to backlog in flash
+            with open(EVENT_BACKLOG_FILE, 'w') as file:
+                for event_str in events:
+                    file.write(event_str + "\n")
+            raise
 
         machine.connection.ensure_connection()
         # send UPP to the ubirch authentication service to be anchored to the blockchain
