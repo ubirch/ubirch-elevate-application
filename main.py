@@ -17,7 +17,7 @@ import logging
 
 # set watchdog: if execution hangs/takes longer than 'timeout' an automatic reset is triggered
 # we need to do this as early as possible in case an import cause a freeze for some reason
-wdt = machine.WDT(timeout=5 * 60 * 1000)  # we set it to 5 minutes here and will reconfigure it when we have loaded the configuration
+wdt = machine.WDT(timeout=6 * 60 * 1000)  # we set it to 5 minutes here and will reconfigure it when we have loaded the configuration
 wdt.feed()  # we only feed it once since this code hopefully finishes with deepsleep (=no WDT) before reset_after_ms
 
 # disable the FTP Server
@@ -78,13 +78,16 @@ class Main:
                 time.sleep_ms(10)
                 # print(micropython.mem_info())
                 wdt.feed()
+
             except Exception as e:
                 print("\r\n\n\n\033[1;31mMAIN ERROR CAUGHT:  {}\033[0m\r\n\n\n".format(repr(e)))
                 try:
                     log.exception(str(e))
                 finally:
                     pass
-                time.sleep(30)
+                time.sleep(10)
+                # hard reset everything
+                self.root_controller.hard_reset()
                 machine.reset()
 
 

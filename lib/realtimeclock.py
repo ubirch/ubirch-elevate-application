@@ -4,7 +4,8 @@ import utime as time
 import machine
 
 NTP_SERVER_DEFAULT = "134.130.4.17"
-SYNC_INTERVAL_DEFAULT = 3600
+NTP_SERVER_BACKUP = "193.30.120.245"
+SYNC_INTERVAL_DEFAULT = 60 * 60 * 12 # sec * min. * hours
 
 rtc = machine.RTC()
 

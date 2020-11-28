@@ -80,7 +80,7 @@ def get_pin_from_flash(pin_file: str, imsi: str) -> str or None:
 
 def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_function, uuid, data) -> (int, bytes):
     MAX_MODEM_RESETS = 1  # number of retries with modem reset before giving up
-    MAX_RECONNECTS = 3  # number of retries with reconnect before trying a modem reset
+    MAX_RECONNECTS = 1  # number of retries with reconnect before trying a modem reset
 
     for reset_attempts in range(MAX_MODEM_RESETS + 1):
         # check if this is a retry for reset_attempts
@@ -336,7 +336,7 @@ def write_backlog(unsent_msgs: list, backlog_file: str, max_len: int) -> None:
 
     # do not let backlog grow too big
     if len(unsent_msgs) > max_len:
-        unsent_msgs.pop()
+        unsent_msgs.pop(0) # throw away the oldest message
 
     # store unsent messages
     with open(backlog_file, 'w') as file:

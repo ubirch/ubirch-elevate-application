@@ -3,6 +3,8 @@
 """
 import usocket
 
+SOCKET_TIMEOUT_S = 120
+
 class Response:
 
     def __init__(self, f):
@@ -73,6 +75,7 @@ def request(method, url, data=None, json=None, headers={}, stream=None, parse_he
             resp_d = {}
 
         s = usocket.socket(ai[0], ai[1], ai[2])
+        s.settimeout(SOCKET_TIMEOUT_S)
         try:
             if proto == "https:":
                 if host in ssl_stored_sessions:
