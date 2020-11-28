@@ -30,6 +30,7 @@ STANDARD_DURATION_MS = 500
 WAIT_FOR_TUNING = 10000
 EVENT_BACKLOG_FILE = "event_backlog.txt"
 UPP_BACKLOG_FILE = "upp_backlog.txt"
+BACKLOG_MAX_LEN = 10   # max number of events / UPPs in the backlogs
 
 log = logging.getLogger()
 
@@ -807,6 +808,8 @@ def _send_event(machine, event: dict, current_time: float):
 def write_backlogs(events: list, upps: list):
     # write unsent events to backlog in flash
     if events:
+        if len(events) > BACKLOG_MAX_LEN:  # do not let backlog grow too big
+            events.pop()
         with open(EVENT_BACKLOG_FILE, 'w') as file:
             for event in events:
                 file.write(event + "\n")
@@ -815,6 +818,8 @@ def write_backlogs(events: list, upps: list):
 
     # write unsent UPPs to backlog in flash
     if upps:
+        if len(upps) > BACKLOG_MAX_LEN:  # do not let backlog grow too big
+            upps.pop()
         with open(UPP_BACKLOG_FILE, 'w') as file:
             for upp in upps:
                 file.write(upp + "\n")
