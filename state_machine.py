@@ -736,19 +736,11 @@ def _send_event(machine, event: dict, current_time: float):
         print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
 
         # get event backlog from flash and add new event
-        events = []
-        if EVENT_BACKLOG_FILE in os.listdir():
-            with open(EVENT_BACKLOG_FILE, 'r') as file:
-                for line in file:
-                    events.append(line.rstrip("\n"))
+        events = get_backlog(EVENT_BACKLOG_FILE)
         events.append(json.dumps(event))
 
         # get UPP backlog from flash and add new UPP
-        upps = []
-        if UPP_BACKLOG_FILE in os.listdir():
-            with open(UPP_BACKLOG_FILE, 'r') as file:
-                for line in file:
-                    upps.append(line.rstrip("\n"))
+        upps = get_backlog(UPP_BACKLOG_FILE)
         upps.append(ubinascii.hexlify(upp).decode())
 
         # send events
@@ -768,9 +760,10 @@ def _send_event(machine, event: dict, current_time: float):
                     # event was sent successfully and can be removed from backlog
                     events.remove(event_str)
 
-        except:
-            # sending failed
-            write_backlogs(events, upps)
+        except Exception:
+            # sending failed, write unsent messages to flash and terminate
+            write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
+            write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
             raise
 
         # send UPPs
@@ -791,40 +784,17 @@ def _send_event(machine, event: dict, current_time: float):
                     # UPP was sent successfully and can be removed from backlog
                     upps.remove(upp_str)
 
-        except:
-            # sending failed
-            write_backlogs(events, upps)
+        except Exception:
+            # sending failed, write unsent messages to flash and terminate
             raise
-
-        # sending successful, backlogs can be removed
-        write_backlogs(events, upps)
+        finally:
+            write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
+            write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
 
     except Exception as e:
         log.exception(str(e))
         machine.go_to_state('error')
         return
-
-
-def write_backlogs(events: list, upps: list):
-    # write unsent events to backlog in flash
-    if events:
-        if len(events) > BACKLOG_MAX_LEN:  # do not let backlog grow too big
-            events.pop()
-        with open(EVENT_BACKLOG_FILE, 'w') as file:
-            for event in events:
-                file.write(event + "\n")
-    elif EVENT_BACKLOG_FILE in os.listdir():  # if there are no unsent events, remove backlog file
-        os.remove(EVENT_BACKLOG_FILE)
-
-    # write unsent UPPs to backlog in flash
-    if upps:
-        if len(upps) > BACKLOG_MAX_LEN:  # do not let backlog grow too big
-            upps.pop()
-        with open(UPP_BACKLOG_FILE, 'w') as file:
-            for upp in upps:
-                file.write(upp + "\n")
-    elif UPP_BACKLOG_FILE in os.listdir():  # if there are no unsent UPPs, remove backlog file
-        os.remove(UPP_BACKLOG_FILE)
 
 
 def _send_emergency_event(machine, event: dict, current_time: float):

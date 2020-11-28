@@ -11,7 +11,6 @@ from connection import Connection
 from modem import reset_modem
 from network import LTE
 
-
 ########
 # LED color codes
 LED_OFF = 0x000000
@@ -46,7 +45,7 @@ COLOR_UNKNOWN_FAIL = LED_WHITE_BRIGHT
 
 
 ########
-def mount_sd(): #todo check if this is the right place for this function
+def mount_sd():  # todo check if this is the right place for this function
     try:
         sd = machine.SD()
         try:  # check if sd is already mounted
@@ -239,6 +238,7 @@ class LedBreath(object):
     according to the time ticks.
     If the breathing does not work for a while, it means the controller is not running
     """
+
     def __init__(self):
         self.period = 5000.0
         self.color = 0xFF00FF
@@ -322,3 +322,35 @@ class LedBreath(object):
         self.color = self.color_back
         self.brightness = self.brightness_back
         self.update()
+
+
+def write_backlog(unsent_msgs: list, backlog_file: str, max_len: int) -> None:
+    """
+    write unsent messages to backlog file in flash
+    """
+    # if there are no unsent messages, remove backlog file
+    if not unsent_msgs:
+        if backlog_file in os.listdir():
+            os.remove(backlog_file)
+        return
+
+    # do not let backlog grow too big
+    if len(unsent_msgs) > max_len:
+        unsent_msgs.pop()
+
+    # store unsent messages
+    with open(backlog_file, 'w') as file:
+        for msg in unsent_msgs:
+            file.write(msg + "\n")
+
+
+def get_backlog(backlog_file: str) -> list:
+    """
+    get unsent messages from backlog file in flash
+    """
+    backlog = []
+    if backlog_file in os.listdir():
+        with open(backlog_file, 'r') as file:
+            for line in file:
+                backlog.append(line.rstrip("\n"))
+    return backlog
