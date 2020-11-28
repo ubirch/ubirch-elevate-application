@@ -19,7 +19,7 @@ def _send_at_cmd(lte: LTE, cmd: str, debug_print=True) -> []:
     return result
 
 
-def reset_modem(lte: LTE, debug_print=False):
+def reset_modem(lte: LTE, debug_print=True):
     function_level = "1"
     cereg_level = "0"
 

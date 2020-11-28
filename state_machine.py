@@ -13,7 +13,7 @@ from lib.helpers import *
 from lib.modem import get_imsi
 from network import LTE
 from lib.pyboard import *
-from lib.realtimeclock import enable_time_sync, wait_for_sync
+from lib.realtimeclock import enable_time_sync, wait_for_sync, NTP_SERVER_BACKUP
 from sensor import MovementSensor
 from sensor_config import *
 import ujson as json
@@ -352,6 +352,13 @@ class StateConnecting(State):
             enable_time_sync()
             log.info("\twaiting for time sync")
             wait_for_sync(print_dots=True)
+            # print("RTC SYC = {}".format(time.time()))
+            if time.time() < 3600:
+                enable_time_sync(server=NTP_SERVER_BACKUP)
+                log.info("\twaiting for time sync")
+                wait_for_sync(print_dots=True)
+                if time.time() < 3600:
+                    raise Exception("Time sync failed", time.time())
 
         except Exception as e:
             machine.lastError = str(e)
