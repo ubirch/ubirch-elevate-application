@@ -756,6 +756,7 @@ def _send_event(machine, event: dict, current_time: float):
 
                 if not 200 <= status_code < 300:
                     log.error("BACKEND RESP {}: {}".format(status_code, content))      # TODO check error log content!
+                    return
                 else:
                     # event was sent successfully and can be removed from backlog
                     events.remove(event_str)
