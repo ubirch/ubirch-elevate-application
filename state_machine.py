@@ -58,6 +58,8 @@ class StateMachine(object):
         except OSError as e:
             log.exception(str(e))
             self.lastError = str(e)
+            machine.hard_reset()
+            log.error("I should not get here")
             # self.go_to_state('error')
             pycom_machine.reset()
 
@@ -670,8 +672,8 @@ class StateError(State):
             machine.lte.deinit(detach=True, reset=True)
 
         finally:
-            machine.hard_reset()
-            log.error("I should not get here")
+            # machine.hard_reset()
+            # log.error("I should not get here")
             pycom_machine.reset()
             # todo maybe try to send the error to backend, but only once, wait for long time?
 
