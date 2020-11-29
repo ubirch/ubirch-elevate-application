@@ -30,6 +30,8 @@ EVENT_BACKLOG_FILE = "event_backlog.txt"
 UPP_BACKLOG_FILE = "upp_backlog.txt"
 BACKLOG_MAX_LEN = 10   # max number of events / UPPs in the backlogs
 
+VERSION_FILE = "OTA_VERSION.txt"
+
 # timing
 STANDARD_DURATION_MS = 500
 BLINKING_DURATION_MS = 60000
@@ -406,6 +408,9 @@ class StateSendingDiagnostics(State):
             event = ({'properties.variables.lastLogContent':{'value': last_log}})
             _send_event(machine, event, time.time())
 
+        # get the firmware version from OTA
+        version = self._get_current_version()
+
         # get the signal quality and network status
         rssi, ber = machine.sim.get_signal_quality(machine.debug)
         cops = machine.sim.get_network_stats(machine.debug)  # TODO this is not yet decyphered
@@ -413,7 +418,7 @@ class StateSendingDiagnostics(State):
                   'properties.variables.cellSignalQuality': {'value': ber},
                   'properties.variables.cellTechnology': {'value': cops},
                   'properties.variables.hardwareVersion':{'value': '0.9.0'},
-                  'properties.variables.firmwareVersion':{'value': '0.9.1'},
+                  'properties.variables.firmwareVersion':{'value': version},
                   'properties.variables.resetCause':{'value':RESET_REASON}})
 
         _send_event(machine, event, time.time())
@@ -428,6 +433,15 @@ class StateSendingDiagnostics(State):
             now = time.ticks_ms()
             if now >= self.enter_timestamp + STANDARD_DURATION_MS:
                 machine.go_to_state('waitingForOvershoot')
+
+
+    def _get_current_version(self):
+        try:
+            from OTA_VERSION import VERSION
+        except ImportError:
+            VERSION = '1.0.0'
+        return VERSION
+
 
     def _read_log(self, num_errors:int=3):
         """
