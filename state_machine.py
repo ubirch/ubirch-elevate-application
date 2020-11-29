@@ -400,12 +400,11 @@ class StateSendingDiagnostics(State):
         machine.breath.set_color(LED_YELLOW)
 
         # check the errors in the log and send it
-        last_log = self._read_log()
+        last_log = self._read_log(2)
         print("LOG: {}".format(last_log))
         if last_log != "":
             event = ({'properties.variables.lastLogContent':{'value': last_log}})
-
-        _send_event(machine, event, time.time())
+            _send_event(machine, event, time.time())
 
         # get the signal quality and network status
         rssi, ber = machine.sim.get_signal_quality(machine.debug)
@@ -750,7 +749,7 @@ def _send_event(machine, event: dict, current_time: float):
 
     try:
         # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
-        # machine.sim.sim_auth(machine.pin)
+        machine.sim.sim_auth(machine.pin)
 
         # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
         print("++ creating UPP")
