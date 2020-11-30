@@ -546,7 +546,7 @@ class WiFiOTA(OTA):
                 raise Exception("Cannot find network '{}'".format(self.SSID))
 
         print("Connected to SSID {}".format(self.wlan.ssid()))
-        
+
         #set port
         self.port = port
 
@@ -876,7 +876,7 @@ def check_OTA_update():
         # # Setup Wifi OTA
         # from ota_wifi_secrets import WIFI_SSID, WIFI_PW
         # ota = WiFiOTA(WIFI_SSID,
-        #         WIFI_PW) 
+        #         WIFI_PW)
 
         # Setup NB-IoT OTA
         print("Initializing LTE")
@@ -888,7 +888,7 @@ def check_OTA_update():
                 NBIOT_APN,
                 NBIOT_BAND,
                 NBIOT_ATTACH_TIMEOUT,
-                NBIOT_CONNECT_TIMEOUT) 
+                NBIOT_CONNECT_TIMEOUT)
 
         #start the update itself
         print("Current version: ", ota.get_current_version())
@@ -917,7 +917,7 @@ server.deinit() # disable the server
 # disable the wifi on boot
 pycom.wifi_on_boot(False)
 
-ota_max_retries = 3
+ota_max_retries = 2
 for retries_left in range((ota_max_retries-1),-1,-1):
     try:
         print("\nStarting OTA update")

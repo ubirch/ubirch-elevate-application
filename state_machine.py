@@ -42,6 +42,9 @@ FIRST_INTERVAL_INACTIVITY_MS = MAX_INACTIVITY_TIME_MS / 32 # =112500 msec
 EXP_BACKOFF_INACTIVITY = 2
 OVERSHOOT_DETECTION_PAUSE_MS = 60 * 1000 # sec * msec
 
+RESTART_OFFSET_TIME_MS = 24 * 60 * 60 * 1000 + (int.from_bytes(os.urandom(3), "big") % 0x3FFFFF)
+print("RESTART IN: {}ms".format(RESTART_OFFSET_TIME_MS))
+
 
 log = logging.getLogger()
 
@@ -82,6 +85,8 @@ class StateMachine(object):
         self.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
         #
         self.tuneInTimeMs = 0
+
+        self.startTime = 0
 
         log.info("\033[0;35m[Core] Initializing magic... \033[0m ✨ ")
         log.info("[Core] Hello, I am %s",  ubinascii.hexlify(pycom_machine.unique_id()))
@@ -368,6 +373,8 @@ class StateConnecting(State):
                 wait_for_sync(print_dots=True)
                 if not board_time_valid():
                     raise Exception("Time sync failed", time.time())
+            # update the start time
+            machine.startTime = time.ticks_ms()
 
         except Exception as e:
             machine.lastError = str(e)
@@ -632,6 +639,11 @@ class StateInactive(State):
 
             if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
                 machine.go_to_state('inactive')
+                return
+
+            if now >= machine.startTime + RESTART_OFFSET_TIME_MS:
+                log.info("its time to restart")
+                machine.go_to_state('bootloader')
                 return
 
             self._adjust_level_state(machine, self.new_log_level, self.new_state)
