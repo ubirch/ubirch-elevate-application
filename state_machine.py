@@ -701,7 +701,7 @@ class StateError(State):
 
         finally:
             time.sleep(3)
-            pycom_machine.reset()
+            pycom_machine.deepsleep(1) # this will wakeup with reset in the main again
             # todo maybe try to send the error to backend, but only once, wait for long time?
 
     def exit(self, machine):

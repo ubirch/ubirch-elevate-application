@@ -908,8 +908,8 @@ def check_OTA_update():
 
 # Turn on GREEN LED
 print("\nEntering OTA bootloader")
-pycom.heartbeat(False)
-pycom.rgbled(0x000500)
+pycom.heartbeat(True)
+# pycom.rgbled(0x000500)
 
 # disable the FTP Server
 server = network.Server()
