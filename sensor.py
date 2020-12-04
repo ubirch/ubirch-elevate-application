@@ -113,7 +113,7 @@ class MovementSensor(object):
     # calculate the speed from the given acceleration values
     def calc_speed(self):
         self.trigger = False
-        ACCELERATION_FILTER1_ALPHA = 0.04
+        ACCELERATION_FILTER1_ALPHA = 0.03
         ACCELERATION_FILTER2_ALPHA = 0.5
         SPEED_FILTER1_ALPHA = 0.03
         SPEED_FILTER2_ALPHA = 0.2
