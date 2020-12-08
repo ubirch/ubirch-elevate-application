@@ -83,6 +83,9 @@ class LIS2HH12:
         # change the full-scale to 4g
         self.set_full_scale(FULL_SCALE_4G)
 
+        # change bandwidth to 50 Hz
+        self.set_bw(3)
+
         # set the interrupt pin as active low and open drain
         self.set_register(CTRL5_REG, 3, 0, 3)
 
@@ -118,7 +121,7 @@ class LIS2HH12:
         z = self.i2c.readfrom_mem(ACC_I2CADDR, ACC_Z_L_REG, 2)
         self.z = struct.unpack('<h', z)
         _mult = self.SCALES[self.full_scale] / ACC_G_DIV
-        return (self.x[0] * _mult, self.y[0] * _mult, self.z[0] * _mult)
+        return (self.x[0] * _mult), (self.y[0] * _mult), (self.z[0] * _mult)
 
     def roll(self):
         x, y, z = self.acceleration()
@@ -139,6 +142,9 @@ class LIS2HH12:
         reg[0] &= ~(mask << offset)
         reg[0] |= ((value & mask) << offset)
         self.i2c.writeto_mem(ACC_I2CADDR, register, reg)
+
+    def set_bw(self, bandwidth):
+        self.set_register(CTRL4_REG, bandwidth, 6, 3)
 
     def set_full_scale(self, scale):
         self.set_register(CTRL4_REG, scale, 4, 3)

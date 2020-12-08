@@ -89,6 +89,8 @@ class MovementSensor(object):
         self.pysense.accelerometer.restart_fifo()
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb)
         self.trigger = True
+        # print("*",end="")
+        # print("X: {} Y: {} Z: {}".format(self.accel_xyz[0][0], self.accel_xyz[0][1], self.accel_xyz[0][2]))
 
     def globals_init(self):
         for i in range(32):
@@ -113,10 +115,10 @@ class MovementSensor(object):
     # calculate the speed from the given acceleration values
     def calc_speed(self):
         self.trigger = False
-        ACCELERATION_FILTER1_ALPHA = 0.03
-        ACCELERATION_FILTER2_ALPHA = 0.5
-        SPEED_FILTER1_ALPHA = 0.03
-        SPEED_FILTER2_ALPHA = 0.2
+        ACCELERATION_FILTER1_ALPHA = 0.013333
+        ACCELERATION_FILTER2_ALPHA = 0.013333
+        SPEED_FILTER1_ALPHA = 0.013333
+        SPEED_FILTER2_ALPHA = 0.013333
         THRESHOLD = 0.2
 
         j = 0
