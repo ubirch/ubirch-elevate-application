@@ -85,8 +85,6 @@ class StateMachine(object):
 
         # set all necessary time values
         self.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
-        #
-        self.tuneInTimeMs = 0
 
         self.startTime = 0
 
@@ -117,21 +115,8 @@ class StateMachine(object):
 
         # now check the movement into the same direction
         if max_speed > g_THRESHOLD:
-            self.movingDown = 0
-            self.movingUp += 1
-            print("+", end="")
-
+            return True
         if abs(min_speed) > g_THRESHOLD:
-            self.movingUp = 0
-            self.movingDown += 1
-            print("-", end="")
-        # else:
-        #     self.movingUp = 0
-        #     self.movingDown = 0
-
-        if self.movingUp > g_CONTINUOS_MOVE_INDEX or self.movingDown > g_CONTINUOS_MOVE_INDEX:
-            self.movingUp = 0
-            self.movingDown = 0
             return True
 
         return False
@@ -456,7 +441,6 @@ class StateSendingDiagnostics(State):
 
     def exit(self, machine):
         # set the restart timer for filter tuning
-        machine.tuneInTimeMs = time.ticks_ms()
         State.exit(self, machine)
 
     def update(self, machine):
@@ -554,7 +538,7 @@ class StateWaitingForOvershoot(State):
         if State.update(self, machine):
             # wait 30 seconds for filter to tune in
             now = time.ticks_ms()
-            if now >= machine.tuneInTimeMs + WAIT_FOR_TUNING_MS:
+            if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
                 if machine.speed():
                     machine.go_to_state('measuringPaused')
                     return
@@ -653,7 +637,7 @@ class StateInactive(State):
         if State.update(self, machine):
             # wait for filter to tune in
             now = time.ticks_ms()
-            if now >= machine.tuneInTimeMs + WAIT_FOR_TUNING_MS:
+            if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
                 if machine.speed():
                     machine.go_to_state('measuringPaused')
                     return
