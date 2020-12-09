@@ -66,6 +66,8 @@ class StateMachine(object):
         self.debug = False
         self.lastError = None
         self.failedBackendCommunications = 0
+        self.movingDown = 0
+        self.movingUp = 0
 
         # create instances of required objects
         try:
@@ -99,18 +101,40 @@ class StateMachine(object):
         :return: the maximum value of the currently measured speed.
         """
         max_speed = 0.0
+        min_speed = 0.0
         i = 0
+
         while i < 3:
             if self.sensor.speed_max[i] > max_speed:
                 max_speed = self.sensor.speed_max[i]
 
-            if math.fabs(self.sensor.speed_min[i]) > max_speed:
-                max_speed = math.fabs(self.sensor.speed_min[i])
+            if self.sensor.speed_min[i] < min_speed:
+                min_speed = self.sensor.speed_min[i]
 
             self.sensor.speed_min[i] = 0.0
             self.sensor.speed_max[i] = 0.0
             i += 1
-        return max_speed
+
+        # now check the movement into the same direction
+        if max_speed > g_THRESHOLD:
+            self.movingDown = 0
+            self.movingUp += 1
+            print("+", end="")
+
+        if abs(min_speed) > g_THRESHOLD:
+            self.movingUp = 0
+            self.movingDown += 1
+            print("-", end="")
+        # else:
+        #     self.movingUp = 0
+        #     self.movingDown = 0
+
+        if self.movingUp > g_CONTINUOS_MOVE_INDEX or self.movingDown > g_CONTINUOS_MOVE_INDEX:
+            self.movingUp = 0
+            self.movingDown = 0
+            return True
+
+        return False
 
     def add_state(self, state):
         """
@@ -531,7 +555,7 @@ class StateWaitingForOvershoot(State):
             # wait 30 seconds for filter to tune in
             now = time.ticks_ms()
             if now >= machine.tuneInTimeMs + WAIT_FOR_TUNING_MS:
-                if machine.speed() > g_THRESHOLD:
+                if machine.speed():
                     machine.go_to_state('measuringPaused')
                     return
             else:
@@ -630,7 +654,7 @@ class StateInactive(State):
             # wait for filter to tune in
             now = time.ticks_ms()
             if now >= machine.tuneInTimeMs + WAIT_FOR_TUNING_MS:
-                if machine.speed() > g_THRESHOLD:
+                if machine.speed():
                     machine.go_to_state('measuringPaused')
                     return
             else:
