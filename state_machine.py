@@ -203,9 +203,6 @@ class State(object):
         :return: True, to indicate, the function was called.
         """
         machine.breath.update()
-
-        if machine.sensor.trigger:
-            machine.sensor.calc_speed()
         return True
 
 
@@ -527,6 +524,9 @@ class StateWaitingForOvershoot(State):
         try:
             State.enter(self, machine)
             machine.breath.set_color(LED_PURPLE)
+            machine.sensor.start()
+            machine.sensor.print_status_table()
+
         except Exception as e:
             log.exception(str(e))
             machine.go_to_state('error')
@@ -536,16 +536,13 @@ class StateWaitingForOvershoot(State):
 
     def update(self, machine):
         if State.update(self, machine):
-            # wait 30 seconds for filter to tune in
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
-                if machine.speed():
-                    machine.go_to_state('measuringPaused')
-                    return
-            else:
-                machine.speed()
-                # print("sensor tuning in with ({})".format(machine.speed()))
+            machine.sensor.poll_sensors()
+            machine.sensor.print_status()
+            if machine.sensor.overshoot:
+                machine.go_to_state('measuringPaused')
+                return
 
+            now = time.ticks_ms()
             if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
                 machine.go_to_state('inactive')
                 return
@@ -566,11 +563,13 @@ class StateMeasuringPaused(State):
     def enter(self, machine):
         State.enter(self, machine)
         machine.breath.set_color(LED_GREEN)
+        machine.sensor.print_status()
+        log.info("Recognized an elevator journey with v ~= %+.3f m/s %s", machine.sensor.speed_filtered_smooth, machine.sensor.direction)
         machine.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
         machine.sensor.poll_sensors()
         event = ({
             'properties.variables.isWorking': { 'value': True },
-#            'properties.variables.acceleration': { 'value': machine.sensor.accel_filtered_smooth },
+            'properties.variables.acceleration': { 'value': machine.sensor.accel_filtered_smooth },
             'properties.variables.accelerationMax': { 'value': machine.sensor.accel_max },
             'properties.variables.accelerationMin': { 'value': machine.sensor.accel_min },
             'properties.variables.altitude': { 'value': machine.sensor.altitude },
@@ -579,20 +578,12 @@ class StateMeasuringPaused(State):
         _send_event(machine, event, time.time())
 
     def exit(self, machine):
-        # reset the speed values for next time
-        machine.sensor.speed_max[0] = 0.0
-        machine.sensor.speed_max[1] = 0.0
-        machine.sensor.speed_max[2] = 0.0
-        machine.sensor.speed_min[0] = 0.0
-        machine.sensor.speed_min[1] = 0.0
-        machine.sensor.speed_min[2] = 0.0
-
-        machine.sensor.accel_max = 0.0
-        machine.sensor.accel_min = 0.0
+        machine.sensor.stop()
         State.exit(self, machine)
 
     def update(self, machine):
         if State.update(self, machine):
+            machine.sensor.poll_sensors()
             now = time.ticks_ms()
             if now >= self.enter_timestamp + OVERSHOOT_DETECTION_PAUSE_MS:
                 machine.go_to_state('waitingForOvershoot')
@@ -628,23 +619,21 @@ class StateInactive(State):
         _send_event(machine, event, time.time())
         self.new_log_level, self.new_state = _get_state_from_backend(machine)
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
-        log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
+        log.debug("[Core] Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
+        machine.sensor.print_status_table()
 
     def exit(self, machine):
         State.exit(self, machine)
 
     def update(self, machine):
         if State.update(self, machine):
-            # wait for filter to tune in
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
-                if machine.speed():
-                    machine.go_to_state('measuringPaused')
-                    return
-            else:
-                machine.speed()
-                # print("sensor tuning in with ({})".format(machine.speed()))
+            machine.sensor.print_status()
+            machine.sensor.poll_sensors()
+            if machine.sensor.overshoot:
+                machine.go_to_state('measuringPaused')
+                return
 
+            now = time.ticks_ms()
             if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
                 machine.go_to_state('inactive')
                 return
@@ -716,6 +705,7 @@ class StateError(State):
             if machine.lastError:
                 log.error("Last error: {}".format(machine.lastError))
 
+            machine.sensor.stop()
             machine.sim.deinit()
             machine.lte.deinit(detach=True, reset=True)
 
