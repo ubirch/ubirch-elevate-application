@@ -118,7 +118,7 @@ class MovementSensor(object):
         ACCELERATION_FILTER2_ALPHA = 0.5
         SPEED_FILTER1_ALPHA = 0.03
         SPEED_FILTER2_ALPHA = 0.2
-        THRESHOLD = 0.2
+        THRESHOLD = 0.25
 
         # Calculate length of 3D acceleration vector and remove gravity (1.0g)
         self.accel = (accel_xyz_tuple[0] ** 2 + accel_xyz_tuple[1] ** 2 + accel_xyz_tuple[2] ** 2) ** (1./2.) - 1.0
