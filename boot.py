@@ -330,7 +330,7 @@
 #         req = "manifest.json?current_ver={}&devid={}&reqid={}&protocol={}".format(self.get_current_version(),self.get_device_id(),request_id,self.PROTOCOL_VERSION)
 #         response = self.get_data(req).decode()
 #
-#         print("response: {}".format(response))
+#         # print("response: {}".format(response))
 #
 #         if len(response)==0 or response is None:
 #             raise Exception("No response received from server")
@@ -342,10 +342,9 @@
 #         sig_type_str,response = self.extract_from_response("SIGNATURE_TYPE",response)
 #         sig_data_str,response = self.extract_from_response("SIGNATURE_DATA",response)
 #
-#         print("manifest:{}".format(manifest_str))
-#         print("sig_type:{}".format(sig_type_str))
-#         print("sig_data:{}".format(sig_data_str))
-#
+#         # print("manifest:{}".format(manifest_str))
+#         # print("sig_type:{}".format(sig_type_str))
+#         # print("sig_data:{}".format(sig_data_str))
 #
 #         #check that all data was found
 #         if len(manifest_str) == 0 or \

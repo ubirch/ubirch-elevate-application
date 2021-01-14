@@ -149,7 +149,11 @@ class LIS2HH12:
         self.odr = odr
 
     def set_high_pass(self, hp):
+        # set FDS bit 0: internal filter bypassed; 1: data from internal filter sent to output register and FIFO
         self.set_register(CTRL2_REG, 1 if hp else 0, 2, 1)
+        # set DFC[1:0] bits: High-pass filter cutoff frequency
+        # 00=ODR/50, 01=ODR/100, 10=ODR/9, 11=ODR/400
+        self.set_register(CTRL2_REG, 3, 5, 2)
 
     def enable_activity_interrupt(self, threshold, duration, handler=None):
         # Threshold is in mg, duration is ms

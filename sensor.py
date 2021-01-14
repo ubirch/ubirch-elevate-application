@@ -49,6 +49,9 @@ class MovementSensor(object):
         #   6 => 500 Hz; resolution: 10  milli seconds; max duration: 2550   ms
         self.pysense.accelerometer.set_odr(3)
 
+        # set highpass filter
+        self.pysense.accelerometer.set_high_pass(1)
+
         # enable activity interrupt
         print("start")
         self.pysense.accelerometer.restart_fifo()
@@ -115,55 +118,13 @@ class MovementSensor(object):
     # calculate the speed from the given acceleration values
     def calc_speed(self):
         self.trigger = False
-        ACCELERATION_FILTER1_ALPHA = 0.013333
-        ACCELERATION_FILTER2_ALPHA = 0.013333
-        SPEED_FILTER1_ALPHA = 0.013333
-        SPEED_FILTER2_ALPHA = 0.013333
-        THRESHOLD = 0.2
-
-        j = 0
-        while j < 3:
-            # self.speed_min[j] = 0.0
-            # self.speed_max[j] = 0.0
-
-            # Remove jitter from acceleration signal.
-            self.accel_smooth[0][j] = ACCELERATION_FILTER1_ALPHA * self.accel_xyz[0][j] \
-                                      + (1 - ACCELERATION_FILTER1_ALPHA) * self.accel_smooth[-1][j]
-            # Auto-calibrate: Filter out bias first using a DC bias filter.
-            self.accel_filtered[0][j] = self.accel_xyz[0][j] - self.accel_smooth[0][j]
-
-            self.accel_filtered_smooth[0][j] = ACCELERATION_FILTER2_ALPHA * self.accel_filtered[0][j] \
-                                      + (1 - ACCELERATION_FILTER2_ALPHA) * self.accel_filtered_smooth[-1][j]
-
-            # Accumulate past acceleration values (without gravity) to calculate speed.
-            self.speed[0][j] = self.speed[-1][j] + self.accel_filtered_smooth[0][j]
-
-            # Average signal to remove high-frequency noise. Without this, a sudden movement like a
-            # train passing nearby or an entering passenger could cause an overshoot event.
-            self.speed_smooth[0][j] = SPEED_FILTER1_ALPHA * self.speed[0][j] \
-                                      + (1 - SPEED_FILTER1_ALPHA) * self.speed_smooth[-1][j]
-
-            # The signal still has a DC bias. Remove it.
-            self.speed_filtered[0][j] = self.speed[0][j] - self.speed_smooth[0][j]
-
-            # Another low-pass filter on the result to remove jitter.
-            self.speed_filtered_smooth[0][j] = SPEED_FILTER2_ALPHA * self.speed_filtered[0][j] \
-                                               + (1 - SPEED_FILTER2_ALPHA) * self.speed_filtered_smooth[-1][j]
-
-            if self.speed_filtered_smooth[0][j] > self.speed_max[j]:
-                self.speed_max[j] = self.speed_filtered_smooth[0][j]
-            if self.speed_filtered_smooth[0][j] < self.speed_min[j]:
-                self.speed_min[j] = self.speed_filtered_smooth[0][j]
-
-            if self.accel_filtered_smooth[0][j] > self.accel_max:
-                self.accel_max = self.accel_filtered_smooth[0][j]
-            if self.accel_filtered_smooth[0][j] < self.accel_min:
-                self.accel_min = self.accel_filtered_smooth[0][j]
-
-            j += 1
+        ACCELERATION_FILTER1_ALPHA = 0.0137 /3
+        ACCELERATION_FILTER2_ALPHA = 0.0137 *3
+        SPEED_FILTER1_ALPHA = 0.0137 /3
+        SPEED_FILTER2_ALPHA = 0.0137 *3
 
         # run through the ring
-        i = 1
+        i = 0
 
         while i < 32:
             j = 0

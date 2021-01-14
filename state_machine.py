@@ -98,25 +98,27 @@ class StateMachine(object):
         over all axis.
         :return: the maximum value of the currently measured speed.
         """
-        max_speed = 0.0
-        min_speed = 0.0
+        self.max_speed = 0.0
+        self.min_speed = 0.0
         i = 0
 
         while i < 3:
-            if self.sensor.speed_max[i] > max_speed:
-                max_speed = self.sensor.speed_max[i]
+            if self.sensor.speed_max[i] > self.max_speed:
+                self.max_speed = self.sensor.speed_max[i]
 
-            if self.sensor.speed_min[i] < min_speed:
-                min_speed = self.sensor.speed_min[i]
+            if self.sensor.speed_min[i] < self.min_speed:
+                self.min_speed = self.sensor.speed_min[i]
 
             self.sensor.speed_min[i] = 0.0
             self.sensor.speed_max[i] = 0.0
             i += 1
 
         # now check the movement into the same direction
-        if max_speed > g_THRESHOLD:
+        if self.max_speed > g_THRESHOLD:
+            print("SPEED MAX= {}".format(self.max_speed))
             return True
-        if abs(min_speed) > g_THRESHOLD:
+        if abs(self.min_speed) > g_THRESHOLD:
+            print("SPEED MIN= {}".format(self.min_speed))
             return True
 
         return False
@@ -158,6 +160,11 @@ class StateMachine(object):
         """
         time.sleep(1)
         self.sensor.pysense.reset_cmd()
+
+############################
+def _formated_time():
+    ct = time.localtime()
+    return "{0:04d}-{1:02d}-{2:02d}T{3:02d}:{4:02d}:{5:02d}Z".format(*ct)  # modified to fit the correct format
 
 
 ################################################################################
@@ -422,7 +429,7 @@ class StateSendingDiagnostics(State):
         print("LOG: {}".format(last_log))
         if last_log != "":
             event = ({'properties.variables.lastLogContent':{'value': last_log}})
-            _send_event(machine, event, time.time())
+            _send_event(machine, event)
 
         # get the firmware version from OTA
         version = self._get_current_version()
@@ -435,9 +442,9 @@ class StateSendingDiagnostics(State):
                   'properties.variables.cellTechnology': {'value': cops},
                   'properties.variables.hardwareVersion':{'value': '0.9.0'},
                   'properties.variables.firmwareVersion':{'value': version},
-                  'properties.variables.resetCause':{'value':RESET_REASON}})
+                  'properties.variables.resetCause':{'value':RESET_REASON, "sentAt": _formated_time()}})
 
-        _send_event(machine, event, time.time())
+        _send_event(machine, event)
 
     def exit(self, machine):
         # set the restart timer for filter tuning
@@ -569,14 +576,14 @@ class StateMeasuringPaused(State):
         machine.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
         machine.sensor.poll_sensors()
         event = ({
-            'properties.variables.isWorking': { 'value': True },
-#            'properties.variables.acceleration': { 'value': machine.sensor.accel_filtered_smooth },
-            'properties.variables.accelerationMax': { 'value': machine.sensor.accel_max },
-            'properties.variables.accelerationMin': { 'value': machine.sensor.accel_min },
-            'properties.variables.altitude': { 'value': machine.sensor.altitude },
-            'properties.variables.temperature': { 'value': machine.sensor.temperature }
+            'properties.variables.isWorking': { 'value': True , 'sentAt': _formated_time()},
+            # 'properties.variables.acceleration': { 'value': machine.sensor.accel_filtered_smooth},
+            'properties.variables.accelerationMax': { 'value': machine.max_speed},
+            'properties.variables.accelerationMin': { 'value': machine.min_speed},
+            'properties.variables.altitude': { 'value': machine.sensor.altitude},
+            'properties.variables.temperature': { 'value': machine.sensor.temperature}
         })
-        _send_event(machine, event, time.time())
+        _send_event(machine, event, ubirching=True)
 
     def exit(self, machine):
         # reset the speed values for next time
@@ -625,7 +632,7 @@ class StateInactive(State):
             'properties.variables.altitude': { 'value': machine.sensor.altitude },
             'properties.variables.temperature': { 'value': machine.sensor.temperature }
         })
-        _send_event(machine, event, time.time())
+        _send_event(machine, event)
         self.new_log_level, self.new_state = _get_state_from_backend(machine)
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
@@ -766,9 +773,10 @@ class StateBootloader(State):
 
 ################################################################################
 
-def _send_event(machine, event: dict, current_time: float):
+def _send_event(machine, event: dict, ubirching:bool=False):
     """
     Send the data to elevate and the UPP to ubirch
+    :param ubirching:
     :param machine: state machine, which provides the connection and the ubirch protocol
     :param event: name of the event to send
     :param current_time: time variable
@@ -777,26 +785,26 @@ def _send_event(machine, event: dict, current_time: float):
     print("SENDING")
 
     # make the elevate data package
-    event.update({ 'properties.variables.ts': { 'v': current_time }})
-    elevate_serialized = serialize_json(event)
     log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
 
     try:
-        # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
-        machine.sim.sim_auth(machine.pin)
+        if ubirching:
+            elevate_serialized = serialize_json(event)
+            # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
+            machine.sim.sim_auth(machine.pin)
 
-        # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
-        print("++ creating UPP")
-        upp = machine.sim.message_chained(machine.key_name, elevate_serialized, hash_before_sign=True)
-        print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
+            # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
+            print("++ creating UPP")
+            upp = machine.sim.message_chained(machine.key_name, elevate_serialized, hash_before_sign=True)
+            print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
+
+            # get UPP backlog from flash and add new UPP
+            upps = get_backlog(UPP_BACKLOG_FILE)
+            upps.append(ubinascii.hexlify(upp).decode())
 
         # get event backlog from flash and add new event
         events = get_backlog(EVENT_BACKLOG_FILE)
         events.append(json.dumps(event))
-
-        # get UPP backlog from flash and add new UPP
-        upps = get_backlog(UPP_BACKLOG_FILE)
-        upps.append(ubinascii.hexlify(upp).decode())
 
         # send events
         machine.connection.ensure_connection()
@@ -812,7 +820,8 @@ def _send_event(machine, event: dict, current_time: float):
                 if not 200 <= status_code < 300:
                     log.error("BACKEND RESP {}: {}".format(status_code, content))      # TODO check error log content!
                     write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                    write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
+                    if ubirching:
+                        write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
                     machine.connection.disconnect()
                     return
                 else:
@@ -822,34 +831,37 @@ def _send_event(machine, event: dict, current_time: float):
         except Exception:
             # sending failed, write unsent messages to flash and terminate
             write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-            write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
+            if ubirching:
+                write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
             raise
 
         # send UPPs
         machine.connection.ensure_connection()
 
         try:
-            for upp_str in upps:
-                # send UPP to the ubirch authentication service to be anchored to the blockchain
-                status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                             machine.api.send_upp, machine.uuid, ubinascii.unhexlify(upp_str))
-                try:
-                    log.debug("NIOMON RESPONSE: ({}) {}".format(status_code, "" if status_code == 200 else ubinascii.hexlify(content).decode()))
-                except Exception: # this is only excaption handling in case the content can not be decyphered
-                    pass
-                # communication worked in general, now check server response
-                if not 200 <= status_code < 300 and not status_code == 409:
-                    log.error("NIOMON RESP {}".format(status_code))
-                else:
-                    # UPP was sent successfully and can be removed from backlog
-                    upps.remove(upp_str)
-
+            if ubirching:
+                for upp_str in upps:
+                    # send UPP to the ubirch authentication service to be anchored to the blockchain
+                    status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
+                                                                 machine.api.send_upp, machine.uuid, ubinascii.unhexlify(upp_str))
+                    try:
+                        log.debug("NIOMON RESPONSE: ({}) {}".format(status_code, "" if status_code == 200 else ubinascii.hexlify(content).decode()))
+                    except Exception: # this is only excaption handling in case the content can not be decyphered
+                        pass
+                    # communication worked in general, now check server response
+                    if not 200 <= status_code < 300 and not status_code == 409:
+                        log.error("NIOMON RESP {}".format(status_code))
+                    else:
+                        # UPP was sent successfully and can be removed from backlog
+                        upps.remove(upp_str)
+            else: pass
         except Exception:
             # sending failed, write unsent messages to flash and terminate
             raise
         finally:
             write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-            write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
+            if ubirching:
+                write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
 
     except Exception as e:
         # if too many communications fail, reset the system
