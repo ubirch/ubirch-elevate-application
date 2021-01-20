@@ -18,7 +18,10 @@ def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):
     :return: the backend response status code, the backend response content (body)
     """
     r = requests.patch(url=url, data=data, headers=headers)
-    return r.status_code, r.content
+    status_code = r.status_code
+    content = r.content
+    r.close()
+    return status_code, content
 
 
 def _get_request(url: str, headers: dict) -> (int, bytes):
@@ -29,7 +32,10 @@ def _get_request(url: str, headers: dict) -> (int, bytes):
     :return: the backend response status code, the backend response content (body)
     """
     r = requests.get(url=url, headers=headers)
-    return r.status_code, r.content
+    status_code = r.status_code
+    content = r.content
+    r.close()
+    return status_code, content
 
 
 class ElevateAPI:

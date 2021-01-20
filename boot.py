@@ -232,7 +232,7 @@
 #
 # class OTA():
 #     #set public key (modulus) of OTA server signature here:
-#     PUB_MOD_RSA_4096 = "CD01EC4B10F718BAD46F177EFFD64B1F4D3FAE655CA5C9E25D5C8B111D8AE8086BC91532CC6BBEE8A4D55B9C39AFA2A3BCAACB02D718FD4316BA744971199B05704601AC80DBDD48D902F333E17913477A66413440754F8717126AB26D3E4432050B73BE27FE028C2F6504799AF8B81B449AB65CC3846BCB1A7DD69C4F7949A93A4181DD9C5835CB69D5C15EA62F47501274E31293772DCC7D44D611C488AD98BE8B350FC6BB5418C6F190156F17AAAF8C64A02CF7CEA16DDBC2D0CD933C459EAF63C51A87F180E85A482C8B2DF172E1C78CEB825297A0A364A2280FB534050C1C12C773495BF9B2A09A85C9BCF8BA5E8D28F1E8E2D743F28188C7039D44ADC4AAB3700D58A2E8F563038C30E8A84E62E8CDB116014838C28C4D77A291F16B8C02F2036958743633763BAB880F7227B910CE256F53718476AF9A738E63AA2B3750FA1C5CA32B34E41A60221EADD230C5090A09A3802A4BE2AF10B8E4F964D36F2E57C186074ACCD9A607ECA2F75B44A401A1A7B52239485054FB11F2EDEA023BAA85C8DA42D8C7D35E595A4ADC3F6A1301AE597989BD679BB5D0C492C7DE732CAD9C27C53B316A9B03673E1A191CED5B84E1239A03D2EEE15F3930FFEA0D977F7200C5B78915C1481CFA81447F40F0B1D53BD1AAFD620A9465D740F96D0732C8C394AE8F14C349AA92F15E4E325F9A0336E877F08355324326E06209FA9C5DBB"
+#     PUB_MOD_RSA_4096 = "A0A720B7520464C1DCFC71C80753AF9897C0B4F6A2066666BA5444CFE8BE5278EC08C838A2DBECD2B842B71909F0148DDF764933840F17194D5AB1DB06918E98D19441E6DDAD21F19BF520B480E95B0730E4DA77069EBB034BA269775980C41EE6BDFAD3C2AB98A7FBDC8B84F4359A7255C066307773D8A0E623A0F2A6F4C742364E613AB2342E6982B7CBB9B680EA6C8366A17529A75C6741423F0FDF7AE9C6C24E99FDB6A9CE431A10BD0604A01E2F59D8213590B5A3AFF012F73BB2D9C654FDA0CBE6D57CDA60E6CF433E680F0BA0C55C19D36223B92EFD4D66A2546AB5CA90EB1DD1781BF3F480A50B0CF23B7CE7CEE45938D4B0E6976EFE43EBB8E11DFCFA59DDF76E0475B0C921C7EDCE0B46B1A959B4314FD70E1D08067367D09F55154FA558C8A2A316F5372F8ED0EB0917677A480005C0CDCCE382F70FD7F2846BBFA0ACFFAB2103044CBB3488CD3A36C6CA1BE895B69DD3DF3E435E9375C692F22BC8445686D36EA8952BFB3B98B8E255F338CFEE961EFC23FBAFA314CC3CBC25C474FB7F75B680D20A31C67B56B759F4B452C2367331DF90900E78E3BE9052172DCF8224354B06994703CD5F28E707A6B4EDE584CB7019A388BE55F73C704D058CDCA7990E7E7330AADBE0EA52C0A2C2209964D6B8A9AC1092F9C94C2D2FF0F16EF9100C5D3F188481B44DD038BF03FA2BF9D719D25B5E663073F8F22C8EC71047"
 #     PROTOCOL_VERSION = "1.0" #version of the bootloader-server protocol
 #
 #     # The following two methods need to be implemented in a subclass for the
@@ -330,6 +330,8 @@
 #         req = "manifest.json?current_ver={}&devid={}&reqid={}&protocol={}".format(self.get_current_version(),self.get_device_id(),request_id,self.PROTOCOL_VERSION)
 #         response = self.get_data(req).decode()
 #
+#         # print("response: {}".format(response))
+#
 #         if len(response)==0 or response is None:
 #             raise Exception("No response received from server")
 #
@@ -339,6 +341,10 @@
 #         manifest_str,response = self.extract_from_response("MANIFEST",response)
 #         sig_type_str,response = self.extract_from_response("SIGNATURE_TYPE",response)
 #         sig_data_str,response = self.extract_from_response("SIGNATURE_DATA",response)
+#
+#         # print("manifest:{}".format(manifest_str))
+#         # print("sig_type:{}".format(sig_type_str))
+#         # print("sig_data:{}".format(sig_data_str))
 #
 #         #check that all data was found
 #         if len(manifest_str) == 0 or \
@@ -429,6 +435,8 @@
 #         from OTA_VERSION import VERSION
 #
 #         # Reboot the device to run the new code
+#         print("\nUpdate done. Resetting.")
+#         time.sleep(0.5)
 #         machine.reset()
 #
 #     def get_file(self, f):
@@ -490,11 +498,12 @@
 #     #     # TODO: Add verification when released in future firmware
 #
 # class WiFiOTA(OTA):
-#     def __init__(self, ssid, password, ip, port):
+#     def __init__(self, ssid, password,sockettimeout:int=60):
 #         self.SSID = ssid
 #         self.password = password
-#         self.ip = ip
-#         self.port = port
+#         self.sockettimeout = sockettimeout
+#         self.ip = None #IP is either set or resolved by "connect" function
+#         self.port = None #Port is  set by "connect" function
 #
 #
 #     def get_device_id(self):
@@ -526,7 +535,10 @@
 #
 #         return devid
 #
-#     def connect(self, url:str=""):
+#     def connect(self, port:int,url:str="",ip:str=""):
+#         """
+#         Connects to the transport network, sets server port, and resolves update server IP from URL if necessary. Specify either IP or URL, not both.
+#         """
 #         self.wlan = network.WLAN(mode=network.WLAN.STA)
 #         if not self.wlan.isconnected() or self.wlan.ssid() != self.SSID:
 #             for net in self.wlan.scan():
@@ -535,24 +547,31 @@
 #                                                        self.password))
 #                     while not self.wlan.isconnected():
 #                         machine.idle()  # save power while waiting
-#                     # now get the IP for the url
-#                     if url != "":
-#                         if ":" in url:
-#                             url, port = url.split(":", 1)
-#                             port = int(port)
-#                         try:
-#                             ai = socket.getaddrinfo(url, port)
-#                             print("IP ={}".format(ai[0][-1]))
-#                             self.ip = ai[0][-1]
-#                         except Exception:
-#                             raise OSError("IP address could not be found")
-#
-#                     break
+#                     break # at this point, we are connected, leave for loop
 #             else:
 #                 raise Exception("Cannot find network '{}'".format(self.SSID))
-#         else:
-#             # Already connected to the correct WiFi
-#             pass
+#
+#         print("Connected to SSID {}".format(self.wlan.ssid()))
+#
+#         #set port
+#         self.port = port
+#
+#         #check parameters and handle resolve/ip setting accordingly
+#         if (url == "" and ip == "") or (url != "" and ip != ""): # nothing given or both given
+#             raise OSError("No URL or IP, or both at the same time given")
+#         elif url != "": # url given
+#             if ":" in url:
+#                 raise OSError("Please specify port as separate parameter and not in URL")
+#             print("Resolving server URL {}...".format(url))
+#             try:
+#                 ai = socket.getaddrinfo(url, port)
+#                 self.ip = ai[0][-1][0]
+#             except Exception as e:
+#                 raise OSError("IP address could not be resolved: {}".format(e))
+#         elif ip != "": # ip given
+#             self.ip = ip
+#         print("Update server address: {}:{}".format(self.ip,self.port))
+#
 #
 #     def clean_up(self):
 #         if self.wlan.isconnected():
@@ -576,6 +595,7 @@
 #         s = socket.socket(socket.AF_INET,
 #                           socket.SOCK_STREAM,
 #                           socket.IPPROTO_TCP)
+#         s.settimeout(self.sockettimeout)
 #         s.connect((self.ip, self.port))
 #
 #         # Request File
@@ -643,14 +663,15 @@
 #             return hash_val
 #
 # class NBIoTOTA(OTA):
-#     def __init__(self, lte: LTE, apn: str, band: int or None, attachtimeout: int, connecttimeout:int, ip:str, port:int):
+#     def __init__(self, lte: LTE, apn: str, band: int or None, attachtimeout: int, connecttimeout:int,sockettimeout:int = 60):
 #         self.lte = lte
 #         self.apn = apn
 #         self.band = band
 #         self.attachtimeout = attachtimeout
 #         self.connecttimeout = connecttimeout
-#         self.ip = ip
-#         self.port = port
+#         self.sockettimeout = sockettimeout
+#         self.ip = None #IP is either set or resolved by "connect" function
+#         self.port = None #Port is  set by "connect" function
 #
 #     def attach(self):
 #         if self.lte.isattached():
@@ -670,37 +691,48 @@
 #
 #         print("\nattached: {} s".format(i))
 #
-#     def connect(self, url:str=""):
-#         if self.lte.isconnected():
-#             return
+#     def connect(self, port:int,url:str="",ip:str=""):
+#         """
+#         Connects to the transport network, sets server port, and resolves update server IP from URL if necessary. Specify either IP or URL, not both.
+#         """
+#         if not self.lte.isattached():
+#             self.attach()
 #
-#         if not self.lte.isattached(): self.attach()
-#
-#         sys.stdout.write("Connecting to the NB-IoT network")
-#         self.lte.connect()  # start a data session and obtain an IP address
-#         i = 0
-#         while not self.lte.isconnected() and i < self.connecttimeout:
-#             i += 1
-#             time.sleep(1.0)
-#             sys.stdout.write(".")
 #         if not self.lte.isconnected():
-#             raise OSError("Timeout when connecting to NB-IoT network.")
+#             sys.stdout.write("Connecting to the NB-IoT network")
+#             self.lte.connect()  # start a data session and obtain an IP address
+#             i = 0
+#             while not self.lte.isconnected() and i < self.connecttimeout:
+#                 i += 1
+#                 time.sleep(1.0)
+#                 sys.stdout.write(".")
+#             if not self.lte.isconnected():
+#                 raise OSError("Timeout when connecting to NB-IoT network.")
 #
-#         print("\nconnected: {} s".format(i))
+#         print("\nconnected in {} s".format(i))
 #
-#         # now get the IP for the url
-#         if url != "":
+#         #set port
+#         self.port = port
+#
+#         #check parameters and handle resolve/ip setting accordingly
+#         if (url == "" and ip == "") or (url != "" and ip != ""): # nothing given or both given
+#             raise OSError("No URL or IP, or both at the same time given")
+#         elif url != "": # url given
 #             if ":" in url:
-#                 url, port = url.split(":", 1)
-#                 port = int(port)
+#                 raise OSError("Please specify port as separate parameter and not in URL")
+#             print("Resolving server URL {}...".format(url))
+#             #set dns servers
 #             socket.dnsserver(1, '8.8.4.4')
 #             socket.dnsserver(0, '8.8.8.8')
 #             try:
 #                 ai = socket.getaddrinfo(url, port)  # todo check if -> is needed, 0, usocket.SOCK_STREAM)
-#                 print("IP ={}".format(ai[0][-1]))
-#                 self.ip = ai[0][-1]
-#             except Exception:
-#                 raise OSError("IP address could not be found")
+#                 self.ip = ai[0][-1][0]
+#             except Exception as e:
+#                 raise OSError("IP address could not be resolved: {}".format(e))
+#         elif ip != "": # ip given
+#             self.ip = ip
+#         print("Update server address: {}:{}".format(self.ip,self.port))
+#
 #
 #
 #     def clean_up(self):
@@ -757,10 +789,11 @@
 #         s = socket.socket(socket.AF_INET,
 #                           socket.SOCK_STREAM,
 #                           socket.IPPROTO_TCP)
+#         s.settimeout(self.sockettimeout)
 #         s.connect((self.ip, self.port))
 #
 #         # Request File
-#         s.sendall(self._http_get(req, "{}:{}".format(self.ip, self.port)))
+#         s.sendall(self._http_get(req, "ota.iot.wheelmap.pro")) # "{}:{}".format(self.ip, self.port)))
 #
 #         try:
 #             content = bytearray()
@@ -829,8 +862,9 @@
 # # and thus allow for garbage collection of OTA memory usage later
 # def check_OTA_update():
 #     # Configuration (if you are looking for the server pubkey: it's in the OTA class)
-#     SERVER_URL = "google.com:8000" # todo this has to be checked, if it works, the connect should get the IP address for the URL
-#     SERVER_IP = "10.42.0.1"
+#     #TODO: Change server URL and Pubkey to non-testing versions
+#     SERVER_URL = "ota.iot.wheelmap.pro"
+#     SERVER_PORT = 80
 #     NBIOT_APN = "iot.1nce.net"
 #     NBIOT_BAND = None #None = autoscan
 #     NBIOT_ATTACH_TIMEOUT = 15*60 #seconds
@@ -841,15 +875,16 @@
 #     wdt = machine.WDT(timeout=WATCHDOG_TIMEOUT)
 #     wdt.feed()
 #
+#     #initialize ota object variable for proper exception handling
+#     ota = None
+#
 #     try:
-#         # Setup Wifi OTA
+#         # # Setup Wifi OTA
 #         # from ota_wifi_secrets import WIFI_SSID, WIFI_PW
 #         # ota = WiFiOTA(WIFI_SSID,
-#         #         WIFI_PW,
-#         #         SERVER_IP,  # server address
-#         #         8000)  # server port
+#         #         WIFI_PW)
 #
-#         # # Setup NB-IoT OTA
+#         # Setup NB-IoT OTA
 #         print("Initializing LTE")
 #         lte = LTE()
 #         lte.reset()
@@ -859,13 +894,11 @@
 #                 NBIOT_APN,
 #                 NBIOT_BAND,
 #                 NBIOT_ATTACH_TIMEOUT,
-#                 NBIOT_CONNECT_TIMEOUT,
-#                 SERVER_IP,  # server address
-#                 8000)  # server port
+#                 NBIOT_CONNECT_TIMEOUT)
 #
 #         #start the update itself
 #         print("Current version: ", ota.get_current_version())
-#         ota.connect(SERVER_URL) # todo this has to be checked, if it works, the connect should get the IP address for the URL
+#         ota.connect(url=SERVER_URL,port=SERVER_PORT)
 #         ota.update()
 #     except Exception as e:
 #         raise(e)#let top level loop handle exception
@@ -881,8 +914,8 @@
 #
 # # Turn on GREEN LED
 # print("\nEntering OTA bootloader")
-# pycom.heartbeat(False)
-# pycom.rgbled(0x000500)
+# pycom.heartbeat(True)
+# # pycom.rgbled(0x000500)
 #
 # # disable the FTP Server
 # server = network.Server()
@@ -890,7 +923,7 @@
 # # disable the wifi on boot
 # pycom.wifi_on_boot(False)
 #
-# ota_max_retries = 3
+# ota_max_retries = 2
 # for retries_left in range((ota_max_retries-1),-1,-1):
 #     try:
 #         print("\nStarting OTA update")

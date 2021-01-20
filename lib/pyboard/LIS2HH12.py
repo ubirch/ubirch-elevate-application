@@ -72,6 +72,9 @@ class LIS2HH12:
         self.act_dur = 0
         self.debounced = False
         self._user_handler = None
+        # reboot the accelerometer, to be sure it works as axpected
+        # TODO has to be checked if necessary
+        self.force_reboot()
 
         whoami = self.i2c.readfrom_mem(ACC_I2CADDR, PRODUCTID_REG, 1)
         if (whoami[0] != 0x41):
@@ -118,7 +121,7 @@ class LIS2HH12:
         z = self.i2c.readfrom_mem(ACC_I2CADDR, ACC_Z_L_REG, 2)
         self.z = struct.unpack('<h', z)
         _mult = self.SCALES[self.full_scale] / ACC_G_DIV
-        return (self.x[0] * _mult, self.y[0] * _mult, self.z[0] * _mult)
+        return (self.x[0] * _mult), (self.y[0] * _mult), (self.z[0] * _mult)
 
     def roll(self):
         x, y, z = self.acceleration()
@@ -129,6 +132,9 @@ class LIS2HH12:
         x, y, z = self.acceleration()
         rad = -math.atan2(y, (math.sqrt(x * x + z * z)))
         return (180 / math.pi) * rad
+
+    def get_register(self, register):
+        return self.i2c.readfrom_mem(ACC_I2CADDR, register, 1)
 
     def get_all_register(self):
         reg = bytearray(self.i2c.readfrom_mem(ACC_I2CADDR, CTRL1_REG, 8))
@@ -149,7 +155,21 @@ class LIS2HH12:
         self.odr = odr
 
     def set_high_pass(self, hp):
+        # set FDS bit 0: internal filter bypassed; 1: data from internal filter sent to output register and FIFO
         self.set_register(CTRL2_REG, 1 if hp else 0, 2, 1)
+        # set DFC[1:0] bits: High-pass filter cutoff frequency
+        # 00=ODR/50, 01=ODR/100, 10=ODR/9, 11=ODR/400
+        self.set_register(CTRL2_REG, 3, 5, 2)
+
+    def force_reboot(self):
+        # set the BOOT bit and Force reboot, cleared as soon as the reboot is finished. Active high
+        wait_loops = 0
+        self.set_register(CTRL6_REG, 1, 7, 1)
+        while self.get_register(CTRL6_REG) >= b'\x80':
+            time.sleep(0.1)
+            wait_loops += 1
+            if wait_loops > 100:
+                raise Exception("Timeout while waiting for read status")
 
     def enable_activity_interrupt(self, threshold, duration, handler=None):
         # Threshold is in mg, duration is ms
