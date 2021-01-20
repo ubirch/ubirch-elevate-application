@@ -66,8 +66,6 @@ class StateMachine(object):
         self.debug = False
         self.lastError = None
         self.failedBackendCommunications = 0
-        self.movingDown = 0
-        self.movingUp = 0
 
         # create instances of required objects
         try:
@@ -115,10 +113,10 @@ class StateMachine(object):
 
         # now check the movement into the same direction
         if self.max_speed > g_THRESHOLD:
-            print("SPEED MAX= {}".format(self.max_speed))
+            # print("SPEED MAX= {}".format(self.max_speed))
             return True
         if abs(self.min_speed) > g_THRESHOLD:
-            print("SPEED MIN= {}".format(self.min_speed))
+            # print("SPEED MIN= {}".format(self.min_speed))
             return True
 
         return False
@@ -256,9 +254,9 @@ class StateInitSystem(State):
             log.exception("failed loading configuration {}".format(str(e)))
             # generate and try to send an emergency event
             event = ({
-                'properties.variables.lastError': {'value': str(e)}
+                'properties.variables.lastError': {'value': str(e), 'sentAt': _formated_time()}
             })
-            _send_emergency_event(machine, event, time.time())
+            _send_emergency_event(machine, event)
             while True: # watchdog will get out of here
                 pycom_machine.idle()
 
@@ -309,9 +307,9 @@ class StateInitSystem(State):
                 log.critical("PIN is invalid, can't continue")
                 # create an emergency event and try to send it
                 event = ({
-                    'properties.variables.lastError': {'value': 'PIN is invalid, can\'t continue'}
+                    'properties.variables.lastError': {'value': 'PIN is invalid, can\'t continue', 'sentAt': _formated_time()}
                 })
-                _send_emergency_event(machine, event, time.time())
+                _send_emergency_event(machine, event)
                 while True:
                     wdt.feed()  # avert reset from watchdog   TODO check this, do not want to be stuck here
                     machine.breath.update()
@@ -425,7 +423,7 @@ class StateSendingDiagnostics(State):
         machine.breath.set_color(LED_YELLOW)
 
         # check the errors in the log and send it
-        last_log = self._read_log(2)
+        last_log = self._read_log(3)
         print("LOG: {}".format(last_log))
         if last_log != "":
             event = ({'properties.variables.lastLogContent':{'value': last_log}})
@@ -576,8 +574,8 @@ class StateMeasuringPaused(State):
         machine.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
         machine.sensor.poll_sensors()
         event = ({
-            'properties.variables.isWorking': { 'value': True , 'sentAt': _formated_time()},
-            # 'properties.variables.acceleration': { 'value': machine.sensor.accel_filtered_smooth},
+            'properties.variables.isWorking': { 'value': True, 'sentAt': _formated_time()},
+            'properties.variables.acceleration': { 'value': 1 if machine.max_speed > abs(machine.min_speed) else -1},
             'properties.variables.accelerationMax': { 'value': machine.max_speed},
             'properties.variables.accelerationMin': { 'value': machine.min_speed},
             'properties.variables.altitude': { 'value': machine.sensor.altitude},
@@ -723,13 +721,18 @@ class StateError(State):
             if machine.lastError:
                 log.error("Last error: {}".format(machine.lastError))
 
+            # try to send the error message
+            event = ({
+                'properties.variables.lastError': {'value': machine.lastError, 'sentAt': _formated_time()}
+            })
+            _send_emergency_event(machine, event)
+
             machine.sim.deinit()
             machine.lte.deinit(detach=True, reset=True)
 
         finally:
             time.sleep(3)
             pycom_machine.deepsleep(1) # this will wakeup with reset in the main again
-            # todo maybe try to send the error to backend, but only once, wait for long time?
 
     def exit(self, machine):
         """ This is intentionally left empty, because this point should never be entered"""
@@ -790,7 +793,7 @@ def _send_event(machine, event: dict, ubirching:bool=False):
     try:
         if ubirching:
             elevate_serialized = serialize_json(event)
-            # unlock SIM TODO check if this is really necessary. sometimes it is, but maybe this can be solved differently.
+            # unlock SIM
             machine.sim.sim_auth(machine.pin)
 
             # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
@@ -810,11 +813,11 @@ def _send_event(machine, event: dict, ubirching:bool=False):
         machine.connection.ensure_connection()
 
         try:
-            for event_str in events:
+            while len(events) > 0:
                 # send data message to data service, with reconnects/modem resets if necessary
                 status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                             machine.elevate_api.send_data, machine.uuid,
-                                                            event_str)
+                                                            events[0])
                 log.debug("RESPONSE: {}".format(content))
 
                 if not 200 <= status_code < 300:
@@ -826,7 +829,7 @@ def _send_event(machine, event: dict, ubirching:bool=False):
                     return
                 else:
                     # event was sent successfully and can be removed from backlog
-                    events.remove(event_str)
+                    events.pop(0)
 
         except Exception:
             # sending failed, write unsent messages to flash and terminate
@@ -840,10 +843,10 @@ def _send_event(machine, event: dict, ubirching:bool=False):
 
         try:
             if ubirching:
-                for upp_str in upps:
+                while len(upps) > 0:
                     # send UPP to the ubirch authentication service to be anchored to the blockchain
                     status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                                 machine.api.send_upp, machine.uuid, ubinascii.unhexlify(upp_str))
+                                                                 machine.api.send_upp, machine.uuid, ubinascii.unhexlify(upps[0]))
                     try:
                         log.debug("NIOMON RESPONSE: ({}) {}".format(status_code, "" if status_code == 200 else ubinascii.hexlify(content).decode()))
                     except Exception: # this is only excaption handling in case the content can not be decyphered
@@ -853,7 +856,8 @@ def _send_event(machine, event: dict, ubirching:bool=False):
                         log.error("NIOMON RESP {}".format(status_code))
                     else:
                         # UPP was sent successfully and can be removed from backlog
-                        upps.remove(upp_str)
+                        upps.pop(0)
+
             else: pass
         except Exception:
             # sending failed, write unsent messages to flash and terminate
@@ -876,18 +880,16 @@ def _send_event(machine, event: dict, ubirching:bool=False):
         machine.connection.disconnect()
 
 
-def _send_emergency_event(machine, event: dict, current_time: float):
+def _send_emergency_event(machine, event: dict):
     """
     # Send an emergency event to elevate
     :param machine: state machine, which provides the connection and the ubirch protocol
     :param event: name of the event to send
-    :param current_time: time variable
     :return:
     """
     print("SENDING")
 
     # make the elevate data package
-    event.update({ 'properties.variables.ts': { 'v': current_time }})
     log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
 
     try:
@@ -937,12 +939,12 @@ def _get_state_from_backend(machine):
 #         'isWorking'#(Bool) DONE
 #         'lastActivityOn' #(date) todo
 #         'lastLogContent' #(String) DONE for ERRORs
-#         'firmwareVersion'# (String) todo currently fixed string
+#         'firmwareVersion'# (String) DONE
 #         'hardwareVersion'# (String) todo currently fixed string
 #         'cellSignalPower'# (Number) DONE
 #         'cellSignalQuality'# (Number) DONE
-#         'cellOperator'# (String) todo figure out
-#         'cellTechnology'# (String) todo currently COPS
+#         'cellOperator'# (String) DONE by backend
+#         'cellTechnology'# (String) DONE by backend
 #         'cellGlobalIdentity'# (String) todo figure out
 #         'cellDeviceIdentity'# (String) todo figure out
 #         'ping'# (Number) todo
