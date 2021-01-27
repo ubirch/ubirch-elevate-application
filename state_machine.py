@@ -66,6 +66,7 @@ class StateMachine(object):
         self.debug = False
         self.lastError = None
         self.failedBackendCommunications = 0
+        self.timeStateLog = []
 
         # create instances of required objects
         try:
@@ -164,6 +165,12 @@ def _formated_time():
     ct = time.localtime()
     return "{0:04d}-{1:02d}-{2:02d}T{3:02d}:{4:02d}:{5:02d}Z".format(*ct)  # modified to fit the correct format
 
+def _concat_state_log(machine):
+    state_log = ""
+    for lines in machine.timeStateLog:
+        state_log += lines + ","
+    machine.timeStateLog.clear()
+    return state_log
 
 ################################################################################
 # States
@@ -191,6 +198,8 @@ class State(object):
         :param machine: state machine, which has the state
         """
         self.enter_timestamp = time.ticks_ms()
+        # add the timestamp and state name to a log, for later sending
+        machine.timeStateLog.append(_formated_time() + ":" + self.name)
         pass
 
     def exit(self, machine):
@@ -582,6 +591,9 @@ class StateMeasuringPaused(State):
             'properties.variables.temperature': { 'value': machine.sensor.temperature}
         })
         _send_event(machine, event, ubirching=True)
+        # now send the state log also
+        event = ({'properties.variables.lastLogContent':{'value': _concat_state_log(machine)}})
+        _send_event(machine, event)
 
     def exit(self, machine):
         # reset the speed values for next time
@@ -628,9 +640,11 @@ class StateInactive(State):
         machine.sensor.poll_sensors()
         event = ({
             'properties.variables.altitude': { 'value': machine.sensor.altitude },
-            'properties.variables.temperature': { 'value': machine.sensor.temperature }
+            'properties.variables.temperature': { 'value': machine.sensor.temperature },
+            'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}
         })
         _send_event(machine, event)
+
         self.new_log_level, self.new_state = _get_state_from_backend(machine)
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))

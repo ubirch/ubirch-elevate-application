@@ -114,7 +114,8 @@ def request(method, url, data=None, json=None, headers={}, stream=None, parse_he
                 s.write(b"Content-Length: %d\r\n" % len(data))
             s.write(b"Connection: shutdown\r\n\r\n")
             if data:
-                s.write(data)
+                s.write(data[:int(len(data)/2)])
+                s.write(data[int(len(data)/2):])
 
             l = s.readline()
             #print(l)
