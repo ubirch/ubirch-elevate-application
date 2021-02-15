@@ -75,7 +75,7 @@ class Main:
         while True:
             try:
                 self.root_controller.update()
-                time.sleep_ms(10)
+                time.sleep_ms(1)
                 # print(micropython.mem_info())
                 wdt.feed()
 

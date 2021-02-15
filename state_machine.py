@@ -47,7 +47,7 @@ print("RESTART IN: {}ms".format(RESTART_OFFSET_TIME_MS))
 
 
 log = logging.getLogger()
-
+SENSOR_CYCLE_COUNTER = 30
 ################################################################################
 # State Machine
 
@@ -67,7 +67,10 @@ class StateMachine(object):
         self.lastError = None
         self.failedBackendCommunications = 0
         self.timeStateLog = []
-
+        self.sensorOverThresholdFlag = False
+        self.sensorThresholdCounter = 0
+        self.sensorMinBufferZ = []
+        self.sensorMaxBufferZ = []
         # create instances of required objects
         try:
             self.sensor = MovementSensor()
@@ -101,6 +104,8 @@ class StateMachine(object):
         self.min_speed = 0.0
         i = 0
 
+        
+
         while i < 3:
             if self.sensor.speed_max[i] > self.max_speed:
                 self.max_speed = self.sensor.speed_max[i]
@@ -112,13 +117,23 @@ class StateMachine(object):
             self.sensor.speed_max[i] = 0.0
             i += 1
 
-        # now check the movement into the same direction
-        if self.max_speed > g_THRESHOLD:
-            # print("SPEED MAX= {}".format(self.max_speed))
-            return True
-        if abs(self.min_speed) > g_THRESHOLD:
-            # print("SPEED MIN= {}".format(self.min_speed))
-            return True
+        if self.sensorThresholdCounter > 0:
+            self.sensorThresholdCounter -= 1
+            self.sensorMinBufferZ.append(self.min_speed)
+            self.sensorMaxBufferZ.append(self.max_speed)
+            if self.sensorThresholdCounter == 0:
+                return True
+
+        else:
+            # now check the movement into the same direction
+            if self.max_speed > g_THRESHOLD:
+                # print("SPEED MAX= {}".format(self.max_speed))
+                self.sensorThresholdCounter = SENSOR_CYCLE_COUNTER
+                # return True
+            if abs(self.min_speed) > g_THRESHOLD:
+                # print("SPEED MIN= {}".format(self.min_speed))
+                self.sensorThresholdCounter = SENSOR_CYCLE_COUNTER
+                # return True
 
         return False
 
@@ -220,7 +235,9 @@ class State(object):
 
         if machine.sensor.trigger:
             machine.sensor.calc_speed()
-        return True
+            if machine.speed():
+                return True
+        return False
 
 
 class StateInitSystem(State):
@@ -354,10 +371,10 @@ class StateInitSystem(State):
         State.exit(self, machine)
 
     def update(self, machine):
-        if State.update(self, machine):
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + STANDARD_DURATION_MS:
-                machine.go_to_state('connecting')
+        State.update(self, machine)
+        now = time.ticks_ms()
+        if now >= self.enter_timestamp + STANDARD_DURATION_MS:
+            machine.go_to_state('connecting')
 
 
 class StateConnecting(State):
@@ -458,10 +475,10 @@ class StateSendingDiagnostics(State):
         State.exit(self, machine)
 
     def update(self, machine):
-        if State.update(self, machine):
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + STANDARD_DURATION_MS:
-                machine.go_to_state('waitingForOvershoot')
+        State.update(self, machine)
+        now = time.ticks_ms()
+        if now >= self.enter_timestamp + STANDARD_DURATION_MS:
+            machine.go_to_state('waitingForOvershoot')
 
 
     def _get_current_version(self):
@@ -479,7 +496,7 @@ class StateSendingDiagnostics(State):
         :return: String of the last errors
         :example: {'t':'1970-01-01T00:00:23Z','l':'ERROR','m':...}
         """
-        BACKUP_COUNT = 4 + 1
+        BACKUP_COUNT = 1 + 1
         last_log = ""
         error_counter = 0
         file_index = 1
@@ -549,20 +566,20 @@ class StateWaitingForOvershoot(State):
         State.exit(self, machine)
 
     def update(self, machine):
-        if State.update(self, machine):
-            # wait 30 seconds for filter to tune in
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
-                if machine.speed():
-                    machine.go_to_state('measuringPaused')
-                    return
-            else:
-                machine.speed()
-                # print("sensor tuning in with ({})".format(machine.speed()))
-
-            if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
-                machine.go_to_state('inactive')
+        sensor_moved = State.update(self, machine)
+        # wait 30 seconds for filter to tune in
+        now = time.ticks_ms()
+        if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
+            if sensor_moved:
+                machine.go_to_state('measuringPaused')
                 return
+        # else:
+        #     machine.speed()
+            # print("sensor tuning in with ({})".format(machine.speed()))
+
+        if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
+            machine.go_to_state('inactive')
+            return
 
 
 class StateMeasuringPaused(State):
@@ -595,6 +612,19 @@ class StateMeasuringPaused(State):
         event = ({'properties.variables.lastLogContent':{'value': _concat_state_log(machine)}})
         _send_event(machine, event)
 
+        sensor_string = ""
+        print("###")
+        for i in range(len(machine.sensorMinBufferZ)):
+            sensor_string += ("{:.3f}, ".format(machine.sensorMinBufferZ[i]))
+        for i in range(len(machine.sensorMaxBufferZ)):
+            sensor_string += ("{:.3f}, ".format(machine.sensorMaxBufferZ[i]))
+        print(sensor_string)
+        event = ({'properties.variables.lastLogContent': {'value': sensor_string.rstrip(",")}})
+        _send_event(machine, event)
+
+        machine.sensorMinBufferZ.clear()
+        machine.sensorMaxBufferZ.clear()
+
     def exit(self, machine):
         # reset the speed values for next time
         machine.sensor.speed_max[0] = 0.0
@@ -609,10 +639,10 @@ class StateMeasuringPaused(State):
         State.exit(self, machine)
 
     def update(self, machine):
-        if State.update(self, machine):
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + OVERSHOOT_DETECTION_PAUSE_MS:
-                machine.go_to_state('waitingForOvershoot')
+        State.update(self, machine)
+        now = time.ticks_ms()
+        if now >= self.enter_timestamp + OVERSHOOT_DETECTION_PAUSE_MS:
+            machine.go_to_state('waitingForOvershoot')
 
 
 class StateInactive(State):
@@ -653,27 +683,27 @@ class StateInactive(State):
         State.exit(self, machine)
 
     def update(self, machine):
-        if State.update(self, machine):
-            # wait for filter to tune in
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
-                if machine.speed():
-                    machine.go_to_state('measuringPaused')
-                    return
-            else:
-                machine.speed()
-                # print("sensor tuning in with ({})".format(machine.speed()))
-
-            if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
-                machine.go_to_state('inactive')
+        sensor_moved = State.update(self, machine)
+        # wait for filter to tune in
+        now = time.ticks_ms()
+        if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
+            if sensor_moved:
+                machine.go_to_state('measuringPaused')
                 return
+        # else:
+        #     machine.speed()
+            # print("sensor tuning in with ({})".format(machine.speed()))
 
-            if now >= machine.startTime + RESTART_OFFSET_TIME_MS:
-                log.info("its time to restart")
-                machine.go_to_state('bootloader')
-                return
+        if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
+            machine.go_to_state('inactive')
+            return
 
-            self._adjust_level_state(machine, self.new_log_level, self.new_state)
+        if now >= machine.startTime + RESTART_OFFSET_TIME_MS:
+            log.info("its time to restart")
+            machine.go_to_state('bootloader')
+            return
+
+        self._adjust_level_state(machine, self.new_log_level, self.new_state)
 
     def _adjust_level_state(self, machine, level, state):
         """
@@ -709,10 +739,10 @@ class StateBlinking(State):
         machine.breath.reset_blinking()
 
     def update(self, machine):
-        if State.update(self, machine):
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + BLINKING_DURATION_MS:
-                machine.go_to_state('inactive')  # this is neccessary to fetch a new state from backend
+        State.update(self, machine)
+        now = time.ticks_ms()
+        if now >= self.enter_timestamp + BLINKING_DURATION_MS:
+            machine.go_to_state('inactive')  # this is neccessary to fetch a new state from backend
 
 
 class StateError(State):
@@ -737,7 +767,7 @@ class StateError(State):
 
             # try to send the error message
             event = ({
-                'properties.variables.lastError': {'value': machine.lastError, 'sentAt': _formated_time()}
+                'properties.variables.lastError': {'value': machine.lastError if machine.lastError is not None else "unknown", 'sentAt': _formated_time()}
             })
             _send_emergency_event(machine, event)
 
@@ -1020,4 +1050,5 @@ def _reset_cause_switcher(reset_cause: int):
 
 # todo find a good place for these functions
 RESET_REASON = _reset_cause_switcher(pycom_machine.reset_cause())
+mount_sd()
 
