@@ -149,8 +149,6 @@ def request(method, url, data=None, json=None, headers=None, stream=None, parse_
                     l = l.decode()
                     k, v = l.split(":", 1)
                     resp_d[k] = v.strip()
-                else:
-                    parse_headers(l, resp_d)
         except OSError:
             s.close()
             raise
