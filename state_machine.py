@@ -20,10 +20,6 @@ import ujson as json
 import logging
 import ubirch
 
-# set watchdog: if execution hangs/takes longer than 'timeout' an automatic reset is triggered
-# we need to do this as early as possible in case an import cause a freeze for some reason
-wdt = machine.WDT(timeout=6 * 60 * 1000)  # we set it to 6 minutes here and will reconfigure it when we have loaded the configuration
-wdt.feed()
 
 # backlog constants
 EVENT_BACKLOG_FILE = "event_backlog.txt"
@@ -36,6 +32,7 @@ VERSION_FILE = "OTA_VERSION.txt"
 STANDARD_DURATION_MS = 500
 BLINKING_DURATION_MS = 60000
 WAIT_FOR_TUNING_MS = 10000
+WATCHDOG_TIMEOUT_MS =6 * 60 * 1000
 
 MAX_INACTIVITY_TIME_MS = 60 * 60 * 1000 # min * sec * msec
 FIRST_INTERVAL_INACTIVITY_MS = MAX_INACTIVITY_TIME_MS / 32 # =112500 msec
@@ -54,6 +51,8 @@ SENSOR_CYCLE_COUNTER = 30
 class StateMachine(object):
 
     def __init__(self):
+        self.wdt = pycom_machine.WDT(timeout=WATCHDOG_TIMEOUT_MS)
+        self.wdt.feed()
         self.state = None
         self.states = {}
         self.cfg = []
@@ -307,7 +306,7 @@ class StateInitSystem(State):
 
             try:
                 machine.pin = bootstrap(imsi, machine.api)
-                with open(pin_file, "wb") as f:
+                with open('/flash/' + pin_file, "wb") as f:
                     f.write(machine.pin.encode())
             except Exception as e:
                 machine.lastError = str(e)
@@ -336,9 +335,11 @@ class StateInitSystem(State):
                     'properties.variables.lastError': {'value': 'PIN is invalid, can\'t continue', 'sentAt': _formated_time()}
                 })
                 _send_emergency_event(machine, event)
-                while True:
-                    wdt.feed()  # avert reset from watchdog   TODO check this, do not want to be stuck here
-                    machine.breath.update()
+                # while True:
+                #     machine.wdt.feed()  # avert reset from watchdog   TODO check this, do not want to be stuck here
+                #     machine.breath.update()
+                time.sleep(180)
+                machine.hard_reset()
             else:
                 machine.lastError = str(e)
                 machine.go_to_state('error')
@@ -362,7 +363,7 @@ class StateInitSystem(State):
 
             try:
                 csr = submit_csr(machine.key_name, machine.cfg["CSR_country"], machine.cfg["CSR_organization"], machine.sim, machine.api)
-                with open(csr_file, "wb") as f:
+                with open('/flash/' + csr_file, "wb") as f:
                     f.write(csr)
             except Exception as e:
                 log.exception(str(e))
@@ -502,7 +503,7 @@ class StateSendingDiagnostics(State):
         file_index = 1
         filename = logging.FILENAME
         if filename in os.listdir():
-            with open(filename, 'r') as reader:
+            with open('/flash/' + filename, 'r') as reader:
                 lines = reader.readlines()
                 for line in reversed(lines):
                     # only take the error messages from the log
@@ -521,7 +522,7 @@ class StateSendingDiagnostics(State):
                         pass
         while file_index < BACKUP_COUNT:
             if (filename + '.{}'.format(file_index)) in os.listdir():
-                with open((filename + '.{}'.format(file_index)), 'r') as reader:
+                with open(('/flash/' + filename + '.{}'.format(file_index)), 'r') as reader:
                     # print("file {} opened".format(file_index))
                     lines = reader.readlines()
                     for line in reversed(lines):

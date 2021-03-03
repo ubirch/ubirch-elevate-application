@@ -71,7 +71,7 @@ def store_imsi(imsi: str):
 def get_pin_from_flash(pin_file: str, imsi: str) -> str or None:
     if pin_file in os.listdir():
         print("\tloading PIN for " + imsi)
-        with open(pin_file, "rb") as f:
+        with open('/flash/' + pin_file, "rb") as f:
             return f.readline().decode()
     else:
         print("\tno PIN found for " + imsi)
@@ -339,7 +339,7 @@ def write_backlog(unsent_msgs: list, backlog_file: str, max_len: int) -> None:
         unsent_msgs.pop(0) # throw away the oldest message
 
     # store unsent messages
-    with open(backlog_file, 'w') as file:
+    with open('/flash/' + backlog_file, 'w') as file:
         for msg in unsent_msgs:
             file.write(msg + "\n")
 
@@ -350,7 +350,7 @@ def get_backlog(backlog_file: str) -> list:
     """
     backlog = []
     if backlog_file in os.listdir():
-        with open(backlog_file, 'r') as file:
+        with open('/flash/' + backlog_file, 'r') as file:
             for line in file:
                 backlog.append(line.rstrip("\n"))
     return backlog

@@ -44,14 +44,14 @@ class RotatingFileHandler(Handler):
 
         if self.maxBytes and self.backupCount and self._counter + s_len > self.maxBytes:
             # remove the last backup file if it is there
-            try_remove(self.filename + ".{0}".format(self.backupCount))
+            try_remove('/flash/' + self.filename + ".{0}".format(self.backupCount))
 
             for i in range(self.backupCount - 1, 0, -1):
                 if i < self.backupCount:
                     try:
                         os.rename(
-                            self.filename + ".{0}".format(i),
-                            self.filename + ".{0}".format(i + 1),
+                            '/flash/' + self.filename + ".{0}".format(i),
+                            '/flash/' + self.filename + ".{0}".format(i + 1),
                         )
                     except OSError:
                         print("LOG emit error")
@@ -60,7 +60,7 @@ class RotatingFileHandler(Handler):
             os.rename(self.filename, self.filename + ".1")
             self._counter = 0
 
-        with open(self.filename, "a") as f:
+        with open('/flash/' + self.filename, "a") as f:
             # print("file opened")
             f.write(msg + "\n")
 

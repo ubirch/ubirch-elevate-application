@@ -67,7 +67,6 @@ class API:
         Claim SIM identity at the ubirch backend.
         The response contains the SIM applet PIN to unlock crypto functionality.
         :param imsi: the SIM international mobile subscriber identity (IMSI)
-        :param auth: the ubirch backend auth token (ubirchAuthToken)
         :return: the server response
         """
         if self.debug:

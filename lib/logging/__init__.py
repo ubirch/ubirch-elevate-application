@@ -152,11 +152,11 @@ class FileHandler(Handler):
 
         self._f = None
         if not delay:
-            with open(self.filename, self.mode) as self._f:
+            with open('/flash/' + self.filename, self.mode) as self._f:
                 self.file_position = self._f.tell()
 
     def emit(self, record):
-        with open(self.filename, 'a') as self._f:
+        with open('/flash/' + self.filename, 'a') as self._f:
             # set file to recent position
             self._f.seek(self.file_position, 0)
             self._f.write(self.formatter.format(record) + self.terminator)

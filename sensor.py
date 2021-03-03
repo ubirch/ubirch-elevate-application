@@ -1,4 +1,5 @@
 import pyboard
+import utime as time
 
 from sensor_config import *
 
@@ -117,6 +118,8 @@ class MovementSensor(object):
 
     # calculate the speed from the given acceleration values
     def calc_speed(self):
+        z_buffer_accel_raw = []
+        z_buffer_accel_raw.append("{},{},".format(time.time(), time.ticks_ms()))
         self.trigger = False
         ACCELERATION_FILTER1_ALPHA = 0.0137 /3
         ACCELERATION_FILTER2_ALPHA = 0.0137 *3
@@ -164,7 +167,13 @@ class MovementSensor(object):
 
                 j += 1
 
+            z_buffer_accel_raw.append("{:.6f},".format(self.accel_xyz[i][2]))
             i += 1
+        z_buffer_accel_raw.append("\n")
+        with open('/sd/raw_accel_ext2.dat', 'a') as file:
+            for raw_data in z_buffer_accel_raw:
+                file.write(raw_data)
+        z_buffer_accel_raw.clear()
 
         # print(self.speed_min, self.speed_max)
         return # self.speed_max, self.speed_min

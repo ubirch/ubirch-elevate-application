@@ -745,7 +745,13 @@ class NBIoTOTA(OTA):
         In this case, we return the SHA256 hash of the SIM ICCID prefixed with
         'ID:' and then prepend an 'IC' (for ICCID) so the result is e.g.
         devid = 'IC' + SHA256("ID:12345678901234567890")
-              = IC27c6bb74efe9633181ae95bade7740969df13ef15bca1d72a92aa19fb66d24c9"""
+              = IC27c6bb74efe9633181ae95bade7740969df13ef15bca1d72a92aa19fb66d24c9
+        The ICCIDs are:
+        D = 8988228066601659333
+        E = 8988228066601659334
+        F = 8988228066601659335
+        G = 8988228066601659336
+        """
 
         try:
             connection = self.lte.isconnected() #save connection state on entry
@@ -761,6 +767,9 @@ class NBIoTOTA(OTA):
 
         hasher = None
         try:
+            print(iccid)
+            print(type(iccid))
+            print("ID:"+iccid)
             hasher = uhashlib.sha256("ID:"+iccid)
             hashvalue = hasher.digest()
         except Exception as e:
@@ -769,6 +778,7 @@ class NBIoTOTA(OTA):
             raise e
 
         devid = "IC" + ubinascii.hexlify(hashvalue).decode('utf-8')
+        print(devid)
 
         return devid
 
@@ -793,7 +803,7 @@ class NBIoTOTA(OTA):
         s.connect((self.ip, self.port))
 
         # Request File
-        s.sendall(self._http_get(req, "ota.iot.wheelmap.pro")) # "{}:{}".format(self.ip, self.port)))
+        s.sendall(self._http_get(req, "grether-20-01.aufzug.live")) # "{}:{}".format(self.ip, self.port)))
 
         try:
             content = bytearray()
@@ -863,7 +873,7 @@ class NBIoTOTA(OTA):
 def check_OTA_update():
     # Configuration (if you are looking for the server pubkey: it's in the OTA class)
     #TODO: Change server URL and Pubkey to non-testing versions
-    SERVER_URL = "ota.iot.wheelmap.pro"
+    SERVER_URL = "grether-20-01.aufzug.live"
     SERVER_PORT = 80
     NBIOT_APN = "iot.1nce.net"
     NBIOT_BAND = None #None = autoscan
@@ -898,6 +908,7 @@ def check_OTA_update():
 
         #start the update itself
         print("Current version: ", ota.get_current_version())
+        ota.get_device_id()
         ota.connect(url=SERVER_URL,port=SERVER_PORT)
         ota.update()
     except Exception as e:
