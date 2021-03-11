@@ -375,7 +375,7 @@ class StateInitSystem(State):
         State.update(self, machine)
         now = time.ticks_ms()
         if now >= self.enter_timestamp + STANDARD_DURATION_MS:
-            machine.go_to_state('connecting')
+            machine.go_to_state('waitingForOvershoot')
 
 
 class StateConnecting(State):
@@ -572,14 +572,14 @@ class StateWaitingForOvershoot(State):
         now = time.ticks_ms()
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
             if sensor_moved:
-                machine.go_to_state('measuringPaused')
+                # machine.go_to_state('measuringPaused')
                 return
         # else:
         #     machine.speed()
             # print("sensor tuning in with ({})".format(machine.speed()))
 
         if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
-            machine.go_to_state('inactive')
+            # machine.go_to_state('inactive')
             return
 
 

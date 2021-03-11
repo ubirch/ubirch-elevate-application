@@ -1,9 +1,26 @@
 import pyboard
 import utime as time
+import uos as os
+from helpers import mount_sd
 
 from sensor_config import *
 
 # TODO, simplify the filtering and data
+
+log_file = "log_raw.dat.1"
+
+def make_new_logfile():
+    global log_file
+    mount_sd()
+    while log_file in os.listdir('/sd'):
+        num = log_file.split(".")
+        print("OLD name ={}.{} num ={}".format(num[0], num[1], num[2]))
+        number = int(num[2]) + 1
+        log_file_new = "{}.{}.{}".format(num[0], num[1], number)
+        print("NEW = {}".format(log_file_new))
+        log_file = log_file_new
+    else:
+        print("NO FILE FOUND")
 
 class MovementSensor(object):
 
@@ -26,6 +43,8 @@ class MovementSensor(object):
         self.overshoot = False
         self.last_print_ms = 0
         self.last_start_ms = 0
+
+        make_new_logfile()
 
         self.globals_init()
 
@@ -51,7 +70,7 @@ class MovementSensor(object):
         self.pysense.accelerometer.set_odr(3)
 
         # set highpass filter
-        self.pysense.accelerometer.set_high_pass(1)
+        # self.pysense.accelerometer.set_high_pass(1)
 
         # enable activity interrupt
         print("start")
@@ -170,7 +189,7 @@ class MovementSensor(object):
             z_buffer_accel_raw.append("{:.6f},".format(self.accel_xyz[i][2]))
             i += 1
         z_buffer_accel_raw.append("\n")
-        with open('/sd/raw_accel_ext2.dat', 'a') as file:
+        with open('/sd/' + log_file, 'a') as file:
             for raw_data in z_buffer_accel_raw:
                 file.write(raw_data)
         z_buffer_accel_raw.clear()

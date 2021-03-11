@@ -70,7 +70,7 @@ class Main:
         self.root_controller.add_state(StateError())
         self.root_controller.add_state(StateBootloader())
         # start with the connecting state
-        self.root_controller.go_to_state('initSystem')
+        self.root_controller.go_to_state('waitingForOvershoot')
 
     def read_loop(self):
         while True:
