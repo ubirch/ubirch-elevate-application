@@ -15,8 +15,8 @@ you need to provide a `config.json` file, which includes:
 {
   "elevateDataUrl": "https://wheelmap.pro/hardware-sensors/",
   "elevateDeviceId": "<ENTER TOKEN HERE>",     // get this ID from the end of the URL
-  "elevateDeviceToken": "<ENTER TOKEN HERE>",  // get this from device specific firmware access token
   "elevateAppToken": "<ENTER TOKEN HERE>", // should stay the same
+  "elevateDeviceToken": "<ENTER TOKEN HERE>",  // get this from device specific firmware access token
   "ubirchAuthToken": "<ENTER TOKEN HERE>", // get this from ubirch console
   "env": "prod",
   "connection":"nbiot",
@@ -48,3 +48,12 @@ You should now see the code files (.py) in your IDE's folder view. We can now up
     >>>
     ```
 1.  Press the Pymakr `UPLOAD` button. This transfers the example code into the GPy's internal flash.The code will be uploaded to the board and should start to print information in the Pymakr console while it is running. You can ignore error messages regarding missing configuration or auth tokens, as we will set this up later. You now have a GPy running the Testkit code, the next step is to register your SIM with the UBIRCH backend and upload the configuration to the Testkit.
+
+
+
+## Bootloader
+
+current URLs for the OTA update are:
+- grether-i.aufzug.live
+- grether-j.aufzug.live
+- ota.iot.wheelmap.pro

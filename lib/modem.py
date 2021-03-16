@@ -3,7 +3,7 @@ import utime as time
 from network import LTE
 
 
-def _send_at_cmd(lte: LTE, cmd: str, debug_print=True) -> []:
+def _send_at_cmd(lte: LTE, cmd: str, debug_print=False) -> []:
     result = []
     for _ in range(3):
         if debug_print: print("++ " + cmd)

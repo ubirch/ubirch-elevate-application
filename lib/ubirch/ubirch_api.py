@@ -13,7 +13,10 @@ def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):
     :return: the backend response status code, the backend response content (body)
     """
     r = requests.post(url=url, data=data, headers=headers)
-    return r.status_code, r.content
+    status_code = r.status_code
+    content = r.content
+    r.close()
+    return status_code, content
 
 
 class API:
@@ -72,7 +75,10 @@ class API:
         self._ubirch_headers['X-Ubirch-IMSI'] = imsi
         r = requests.get(url=self.bootstrap_service_url, headers=self._ubirch_headers)
         del self._ubirch_headers['X-Ubirch-IMSI']
-        return r.status_code, r.content
+        status_code = r.status_code
+        content = r.content
+        r.close()
+        return status_code, content
 
     def send_csr(self, csr: bytes) -> (int, bytes):
         """

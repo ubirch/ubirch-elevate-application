@@ -3,6 +3,7 @@
 #  adopt README.md
 import utime as time
 import micropython
+import sys
 
 from logging.handlers import RotatingFileHandler
 
@@ -17,8 +18,8 @@ import logging
 
 # set watchdog: if execution hangs/takes longer than 'timeout' an automatic reset is triggered
 # we need to do this as early as possible in case an import cause a freeze for some reason
-wdt = machine.WDT(timeout=6 * 60 * 1000)  # we set it to 5 minutes here and will reconfigure it when we have loaded the configuration
-wdt.feed()  # we only feed it once since this code hopefully finishes with deepsleep (=no WDT) before reset_after_ms
+# wdt = machine.WDT(timeout=60 * 1000)  # we set it to 5 minutes here and will reconfigure it when we have loaded the configuration
+# wdt.feed()  # we only feed it once since this code hopefully finishes with deepsleep (=no WDT) before reset_after_ms
 
 # disable the FTP Server
 server = Server()
@@ -76,8 +77,7 @@ class Main:
             try:
                 self.root_controller.update()
                 time.sleep_ms(10)
-                # print(micropython.mem_info())
-                wdt.feed()
+                self.root_controller.wdt.feed()
 
             except Exception as e:
                 print("\r\n\n\n\033[1;31mMAIN ERROR CAUGHT:  {}\033[0m\r\n\n\n".format(repr(e)))

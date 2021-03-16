@@ -8,26 +8,24 @@ from sensor_config import *
 class MovementSensor(object):
 
     def __init__(self):
-        self.accel = 0.0
-        self.accel_filtered = 0.0
-        self.accel_smooth = 0.0
-        self.accel_filtered_smooth = 0.0
-        self.speed = 0.0
-        self.speed_smooth = 0.0
-        self.speed_filtered = 0.0
-        self.speed_filtered_smooth = 0.0
-        self.speed_min = 0.0
+        self.accel_xyz = []
+        self.accel_smooth = []
+        self.accel_filtered = []
+        self.accel_filtered_smooth = []
+        self.speed = []
+        self.speed_smooth = []
+        self.speed_filtered = []
+        self.speed_filtered_smooth = []
         self.speed_max = 0.0
-        self.accel_max = 0.0
-        self.accel_min = 0.0
+        self.speed_min = 0.0
         self.altitude = 0.0
         self.temperature = 0.0
-
-        self.active = False
+        self.trigger = False        # todo rename this variable to indicate, what happens
         self.overshoot = False
-        self.direction = '🔸'
         self.last_print_ms = 0
         self.last_start_ms = 0
+
+        self.globals_init()
 
         # initialise the accelerometer
         self.pysense = pyboard.Pysense()
@@ -50,20 +48,15 @@ class MovementSensor(object):
         #   6 => 500 Hz; resolution: 10  milli seconds; max duration: 2550   ms
         self.pysense.accelerometer.set_odr(3)
 
-    def start(self):
-        self.last_start_ms = time.ticks_ms()
-        self.speed_max = self.speed_min = 0
-        self.overshoot = False
-        self.direction = '🔸'
+        # set highpass filter
+        # self.pysense.accelerometer.set_high_pass(1)
 
+        # enable activity interrupt
+        print("start")
         self.pysense.accelerometer.restart_fifo()
         self.pysense.accelerometer.setup_fifo()
-        self.active = True
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb)
-
-    def stop(self):
-        self.active = False
-        self.pysense.accelerometer.enable_fifo_interrupt(handler=None)
+        print("int enabled")
 
     def poll_sensors(self):
         self.altitude = self.pysense.altimeter.altitude()
@@ -73,88 +66,98 @@ class MovementSensor(object):
     # It collects all data from the accelerometer and sets the trigger for the calculation.
     def accelerometer_interrupt_cb(self, pin):
         self.pysense.accelerometer.enable_fifo_interrupt(handler=None)
-        if not self.active:
-            return
-        for _ in range(32):
-            accel_xyz_tuple = self.pysense.accelerometer.acceleration()
-            self.process_next_sample(accel_xyz_tuple)
+        # print("*")
+        try:
+            accel_tuple = self.pysense.accelerometer.acceleration()
+            accel_list = list(accel_tuple)
+        except Exception as e:
+            print("ERROR      can't read data:", e)
+
+        # get data
+        for i in range(32):
+            try:
+                accel_tuple = self.pysense.accelerometer.acceleration()
+                accel_list.extend(accel_tuple)
+            except Exception as e:
+                print("ERROR      can't read data:", e)
+        i = 0
+        while i < 32:
+            j = 0
+            while j < 3:
+                self.accel_xyz[i][j] = accel_list[i * 3 + j]
+                j += 1
+            i += 1
+
         self.pysense.accelerometer.restart_fifo()
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb)
+        self.trigger = True
+        # print("*",end="")
+        # print("X: {} Y: {} Z: {}".format(self.accel_xyz[0][0], self.accel_xyz[0][1], self.accel_xyz[0][2]))
 
+    def globals_init(self):
+        for i in range(32):
+            self.accel_xyz.append([])
+            self.accel_smooth.append([])
+            self.accel_filtered.append([])
+            self.accel_filtered_smooth.append([])
+            self.speed.append([])
+            self.speed_smooth.append([])
+            self.speed_filtered.append([])
+            self.speed_filtered_smooth.append([])
+            for j in range(3):
+                self.accel_xyz[i].append(0.0)
+                self.accel_smooth[i].append(0.0)
+                self.accel_filtered[i].append(0.0)
+                self.accel_filtered_smooth[i].append(0.0)
+                self.speed[i].append(0.0)
+                self.speed_smooth[i].append(0.0)
+                self.speed_filtered[i].append(0.0)
+                self.speed_filtered_smooth[i].append(0.0)
 
-    def print_status_table(self):
-        print("┌---------------------------------------┬---------------------------------------------------------┬---------┬--------┬--------┐")
-        print("| acceleration                          |  speed (estimated)                                      | time    | alt    | temp   |")
-        print("| raw      smooth   w/o DC    smooth    |  raw        w/o DC     smooth     min        max        |         |        |        |")
-        print("├---------------------------------------┼---------------------------------------------------------┼---------┼--------┼--------┤")
-        print("|                                       |                                                         |         |        |        |")
-        print("└---------------------------------------┴---------------------------------------------------------┴---------┴--------┴--------┘")
+    # calculate the speed from the given acceleration values
+    def calc_speed(self):
 
-    def print_status(self):
-        now = time.ticks_ms()
-        if (now - self.last_print_ms < 250):
-            return
-        self.last_print_ms = now
-        print("\r", end="")
-        print("\033[s\033[2A│ %+.3fg  %+.3fg  %+.3fg  %+.3fg    │  %+.3fm/s  %+.3fm/s  %+.3fm/s  %+.3fm/s  %+.3fm/s  │ %6.1fs | %5.1fm | %3.1f°C \033[u" % (
-            self.accel,
-            self.accel_smooth,
-            self.accel_filtered,
-            self.accel_filtered_smooth,
-            self.speed,
-            self.speed_filtered,
-            self.speed_filtered_smooth,
-            self.speed_min,
-            self.speed_max,
-            0.001 * (time.ticks_ms() - self.last_start_ms),
-            self.altitude,
-            self.temperature,
-        ), end="")
+        self.trigger = False
+        ACCELERATION_FILTER1_ALPHA = 0.0137 /3
+        ACCELERATION_FILTER2_ALPHA = 0.0137 *3
+        SPEED_FILTER1_ALPHA = 0.0137 /3
+        SPEED_FILTER2_ALPHA = 0.0137 *3
 
-    def process_next_sample(self, accel_xyz_tuple):
-        if self.overshoot:
-            return
-        ACCELERATION_FILTER1_ALPHA = 0.04
-        ACCELERATION_FILTER2_ALPHA = 0.5
-        SPEED_FILTER1_ALPHA = 0.03
-        SPEED_FILTER2_ALPHA = 0.2
-        THRESHOLD = 0.25
+        # run through the ring
+        i = 0
 
-        # Calculate length of 3D acceleration vector and remove gravity (1.0g)
-        self.accel = (accel_xyz_tuple[0] ** 2 + accel_xyz_tuple[1] ** 2 + accel_xyz_tuple[2] ** 2) ** (1./2.) - 1.0
+        while i < 32:
+            j = 0
+            while j < 3:
+                # Remove jitter from acceleration signal.
+                self.accel_smooth[i][j] = ACCELERATION_FILTER1_ALPHA * self.accel_xyz[i][j] \
+                                          + (1 - ACCELERATION_FILTER1_ALPHA) * self.accel_smooth[i -1][j]
+                # Auto-calibrate: Filter out bias first using a DC bias filter.
+                self.accel_filtered[i][j] = self.accel_xyz[i][j] - self.accel_smooth[i][j]
 
-        # Remove jitter from acceleration signal.
-        self.accel_smooth = ACCELERATION_FILTER1_ALPHA * self.accel + (1 - ACCELERATION_FILTER1_ALPHA) * self.accel_smooth
+                self.accel_filtered_smooth[i][j] = ACCELERATION_FILTER2_ALPHA * self.accel_filtered[i][j] \
+                                                   + (1 - ACCELERATION_FILTER2_ALPHA) * self.accel_filtered_smooth[i -1][j]
 
-        # Auto-calibrate: Filter out bias first using a DC bias filter.
-        self.accel_filtered = self.accel - self.accel_smooth
+                # Accumulate past acceleration values (without gravity) to calculate speed.
+                self.speed[i][j] = self.speed[i -1][j] + self.accel_filtered_smooth[i][j]
 
-        self.accel_filtered_smooth = ACCELERATION_FILTER2_ALPHA * self.accel_filtered + (1 - ACCELERATION_FILTER2_ALPHA) * self.accel_filtered_smooth
+                # Average signal to remove high-frequency noise. Without this, a sudden movement like a
+                # train passing nearby or an entering passenger could cause an overshoot event.
+                self.speed_smooth[i][j] = SPEED_FILTER1_ALPHA * self.speed[i][j] \
+                                          + (1 - SPEED_FILTER1_ALPHA) * self.speed_smooth[i -1][j]
 
-        # Accumulate past acceleration values (without gravity) to calculate speed.
-        self.speed = self.speed + self.accel_filtered_smooth
+                # The signal still has a DC bias. Remove it.
+                self.speed_filtered[i][j] = self.speed[i][j] - self.speed_smooth[i][j]
 
-        # Average signal to remove high-frequency noise. Without this, a sudden movement like a
-        # train passing nearby or an entering passenger could cause an overshoot event.
-        self.speed_smooth = SPEED_FILTER1_ALPHA * self.speed + (1 - SPEED_FILTER1_ALPHA) * self.speed_smooth
+                # Another low-pass filter on the result to remove jitter.
+                self.speed_filtered_smooth[i][j] = SPEED_FILTER2_ALPHA * self.speed_filtered[i][j] \
+                                                   + (1 - SPEED_FILTER2_ALPHA) * self.speed_filtered_smooth[i -1][j]
 
-        # The signal still has a DC bias. Remove it.
-        self.speed_filtered = self.speed - self.speed_smooth
+                j += 1
 
-        # Another low-pass filter on the result to remove jitter.
-        self.speed_filtered_smooth = SPEED_FILTER2_ALPHA * self.speed_filtered + (1 - SPEED_FILTER2_ALPHA) * self.speed_filtered_smooth
+            i += 1
 
-        # Discard the first few samples after a restart to ignore overshoot event from artifacts
-        if (time.ticks_ms() - self.last_start_ms > 3000):
-            self.speed_max = max(self.speed_max, self.speed_filtered_smooth)
-            self.speed_min = min(self.speed_min, self.speed_filtered_smooth)
-            self.accel_max = max(self.accel_max, self.accel_filtered_smooth)
-            self.accel_min = min(self.accel_min, self.accel_filtered_smooth)
+        self.speed_min = min(min(self.speed_filtered_smooth))
+        self.speed_max = max(max(self.speed_filtered_smooth))
 
-            if abs(self.speed_filtered_smooth) > THRESHOLD:
-                self.overshoot = True
-                if self.speed_filtered_smooth > 0:
-                    self.direction = '🔺'
-                if self.speed_filtered_smooth < 0:
-                    self.direction = '🔻'
-
+        return
