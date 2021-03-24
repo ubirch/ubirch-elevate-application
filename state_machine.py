@@ -173,7 +173,7 @@ class State(object):
     """
 
     def __init__(self):
-        self.enter_timestamp = 0
+        self.enter_timestamp = 0 # CHECK: since the reference point is arbitrary per the micropython docs,  time.ticks_ms() might be safer
         pass
 
     @property
@@ -182,7 +182,7 @@ class State(object):
         Name of state for state interaction.
         :return name string of the state.
         """
-        return ''
+        return '' # CHECK: this must raise a "not implemented" error instead of returning something, as a proper state name is needed for the state machine class to work
 
     def enter(self, machine):
         """
@@ -194,6 +194,13 @@ class State(object):
         # add the timestamp and state name to a log, for later sending
         machine.timeStateLog.append(_formated_time() + ":" + self.name)
         pass
+        # CHECK: if we want to ensure that all states are logged properly (avoiding copy paste errors in inheriting classes or forgetting State.enter()),
+        # it might be better to split logging and entering in this base class:
+        # def enter(...):
+        #     log_enter(...)
+        #     do_entry(...)
+        # Only do_entry (probably not the best name, just an example...) is then implemented in inheriting specific state class
+        # and proper logging always ensured via the base class implentation of enter (remember to raise not implemented in this base class for do_entry())
 
     def exit(self, machine):
         """
@@ -209,6 +216,8 @@ class State(object):
         :param machine: state machine, which has the state.
         :return: True, to indicate, the function was called.
         """
+        # CHECK: maybe for this, the same remark as for enter (forgetting to call State.update()) applies
+        # i.e. update() could consist of breath_update() and do_update() or similar. (See enter())
         machine.breath.update()
 
         if machine.sensor.trigger:
@@ -236,7 +245,7 @@ class StateInitSystem(State):
 
         try:
             # reset modem (modem might be in a strange state)
-            log.warning("not coming from sleep, resetting modem")
+            log.warning("not coming from sleep, resetting modem") # CHECK: message seems wrong, there is no check for sleep here
             reset_modem(machine.lte)
 
             log.info("getting IMSI")
@@ -245,7 +254,7 @@ class StateInitSystem(State):
         except Exception as e:
             log.exception("failed setting up modem {}".format(str(e)))
             while True:  # watchdog will get out of this
-                pycom_machine.idle()
+                pycom_machine.idle() # CHECK: shouldn't this transition to the error state instead of endlessly looping?
 
         # load configuration, blocks in case of failure
         log.info("loading config")
@@ -264,7 +273,7 @@ class StateInitSystem(State):
             })
             _send_emergency_event(machine, event)
             while True:  # watchdog will get out of here
-                pycom_machine.idle()
+                pycom_machine.idle() # CHECK: shouldn't this transition to the error state instead of endlessly looping?
 
         # create an instance of the elevate API, which needs the configuration
         machine.elevate_api = ElevateAPI(machine.cfg)
