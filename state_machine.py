@@ -77,19 +77,19 @@ class StateMachine(object):
             log.exception(str(e))
             self.lastError = str(e)
             self.hard_reset()
-            log.error("I should not get here")
+            log.error("I should not get here") # CHECK: maybe be more specific with the message in case this line actually is triggered one day.
             # self.go_to_state('error')
             pycom_machine.reset()
 
         # set all necessary time values
         self.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
 
-        self.startTime = 0
+        self.startTime = 0 # CHECK: since the reference point is arbitrary per the micropython docs,  time.ticks_ms() might be safer
 
         log.info("\033[0;35m[Core] Initializing magic... \033[0m ✨ ")
         log.info("[Core] Hello, I am %s", ubinascii.hexlify(pycom_machine.unique_id()))
 
-    def speed(self):
+    def speed(self): # CHECK: why is this part of the state machine?
         """
         Calculate th maximum absolute speed value from current sensor values,
         over all axis.
@@ -110,13 +110,15 @@ class StateMachine(object):
         Add a new state to the state machine
         :param state: new state to add
         """
-        self.states[state.name] = state
+        self.states[state.name] = state # CHECK: this allows for overwriting of states (intended?), might need check for 'if not state.name in self.states:... else: error'
 
     def go_to_state(self, state_name):
         """
         Go to the state, which is indicated in the state_name
         :param state_name: new state to go to.
         """
+        # CHECK: does this need a check if the state_name exists and/or an exception handler?
+        # right now, an exception would propagate to the caller, which is probably also fine 
         if self.state:
             log.debug('Exiting {}'.format(self.state.name))
             self.state.exit(self)
@@ -135,6 +137,8 @@ class StateMachine(object):
             except Exception as e:
                 log.exception('Uncaught exception while processing state %s: %s', self.state, str(e))
                 self.go_to_state('error')
+        # CHECK: if there is no current state set (e.g. faulty update() function in some state),
+        # this silently returns without errors. Throwing an exception here might be better.
 
     def hard_reset(self):
         """
@@ -145,6 +149,8 @@ class StateMachine(object):
 
 
 ############################
+
+# CHECK: maybe add remark what these are for, as far as i can see this section is print helper functions, right?
 def _formated_time():
     ct = time.localtime()
     return "{0:04d}-{1:02d}-{2:02d}T{3:02d}:{4:02d}:{5:02d}Z".format(*ct)  # modified to fit the correct format

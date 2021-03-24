@@ -77,7 +77,8 @@ class Main:
             try:
                 self.root_controller.update()
                 time.sleep_ms(10)
-                self.root_controller.wdt.feed()
+                self.root_controller.wdt.feed() # CHECK: This way, the watchdog will never trigger as long as update() returns without exception.
+                                                # Might be worth thinking about only feeding watchdog if something meaningful is done. (I.e. in the states.)
 
             except Exception as e:
                 print("\r\n\n\n\033[1;31mMAIN ERROR CAUGHT:  {}\033[0m\r\n\n\n".format(repr(e)))
