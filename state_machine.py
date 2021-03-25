@@ -271,7 +271,8 @@ class StateInitSystem(State):
             event = ({
                 'properties.variables.lastError': {'value': str(e), 'sentAt': _formated_time()}
             })
-            _send_emergency_event(machine, event)
+            _send_emergency_event(machine, event) # CHECK: if transitions to an error state are implemented for SysInit, it might be better to send the
+                                                  #  emergency message in the error state (?)
             while True:  # watchdog will get out of here
                 pycom_machine.idle() # CHECK: shouldn't this transition to the error state instead of endlessly looping?
 
@@ -300,7 +301,8 @@ class StateInitSystem(State):
                     f.write(machine.pin.encode())
             except Exception as e:
                 machine.lastError = str(e)
-                machine.go_to_state('error')
+                machine.go_to_state('error') # CHECK: state changes should not happen during enter() as it would recursively call enter of the next state
+                                             # if this code is moved into update() later the go_to_state() would be fine here
                 return
 
         # initialise ubirch SIM protocol
@@ -309,7 +311,8 @@ class StateInitSystem(State):
             machine.sim = ElevateSim(lte=machine.lte, at_debug=machine.debug)
         except Exception as e:
             machine.lastError = str(e)
-            machine.go_to_state('error')
+            machine.go_to_state('error')    # CHECK: state changes should not happen during enter() as it would recursively call enter of the next state
+                                            # if this code is moved into update() later the go_to_state() would be fine here
             return
 
         # unlock SIM
@@ -325,12 +328,13 @@ class StateInitSystem(State):
                     'properties.variables.lastError': {'value': 'PIN is invalid, can\'t continue',
                                                        'sentAt': _formated_time()}
                 })
-                _send_emergency_event(machine, event)
+                _send_emergency_event(machine, event) # CHECK: if transitions to an error state are implemented for SysInit, it might be better to send the
+                                                      #  emergency message in the error state (?)
                 # while True:
                 #     machine.wdt.feed()  # avert reset from watchdog   TODO check this, do not want to be stuck here
                 #     machine.breath.update()
                 time.sleep(180)
-                machine.hard_reset()
+                machine.hard_reset() # CHECK: if the PIN is invalid, it will probably still be on next boot, and thus the SIM will become unusable after 3 resets
             else:
                 machine.lastError = str(e)
                 machine.go_to_state('error')
@@ -354,6 +358,7 @@ class StateInitSystem(State):
                 machine.connection.ensure_connection()
             except Exception as e:
                 log.exception(str(e))
+                # CHECK: shouldn't this transition to an error state? With the current implementation the system will transition to next state without sending CSR
 
             try:
                 csr = submit_csr(machine.key_name, machine.cfg["CSR_country"], machine.cfg["CSR_organization"],
@@ -362,6 +367,7 @@ class StateInitSystem(State):
                     f.write(csr)
             except Exception as e:
                 log.exception(str(e))
+                # CHECK: shouldn't this transition to an error state? With the current implementation the system will transition to next state without sending CSR
 
     def exit(self, machine):
         State.exit(self, machine)
@@ -369,7 +375,17 @@ class StateInitSystem(State):
     def update(self, machine):
         State.update(self, machine)
         now = time.ticks_ms()
-        if now >= self.enter_timestamp + STANDARD_DURATION_MS:
+        if now >= self.enter_timestamp + STANDARD_DURATION_MS: # CHECK: this is not overflow/wraparound-safe, as "now" can go back to zero.
+                                                               # Should usually be "if (now - back_then) >= wait_duration:" for uint, but additionally the docs say
+                                                               # 'Performing standard mathematical operations (+, -) or relational operators (<, <=, >, >=) 
+                                                               # directly on these value (=ticks) will lead to invalid result.' Instead ticks_diff() must be used:
+                                                               # start = time.ticks_ms()
+                                                               # while true:
+                                                               #     if time.ticks_diff(time.ticks_um(), start) > 500:
+                                                               #         print("Time over")
+                                                               # Order of arguments matters, too: (newer,older). Probably needs to be checked for every occurence of time.ticks_ms()
+                                                               # Documentation also states 'This function should not be used to measure arbitrarily long periods of time.' See also
+                                                               # micropython documentation for utime.
             machine.go_to_state('connecting')
 
 
