@@ -159,7 +159,11 @@ class LIS2HH12:
         self.set_register(CTRL2_REG, 1 if hp else 0, 2, 1)
         # set DFC[1:0] bits: High-pass filter cutoff frequency
         # 00=ODR/50, 01=ODR/100, 10=ODR/9, 11=ODR/400
-        self.set_register(CTRL2_REG, 3, 5, 2)
+        self.set_register(CTRL2_REG, 3, 5, 3)
+
+    def reset_high_pass(self):
+        # set FDS bit 0: internal filter bypassed; 1: data from internal filter sent to output register and FIFO
+        self.set_register(CTRL2_REG, 0x00, 0, 0xFF)
 
     def force_reboot(self):
         # set the BOOT bit and Force reboot, cleared as soon as the reboot is finished. Active high

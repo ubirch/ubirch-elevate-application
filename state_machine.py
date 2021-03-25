@@ -31,8 +31,8 @@ VERSION_FILE = "OTA_VERSION.txt"
 # timing
 STANDARD_DURATION_MS = 500
 BLINKING_DURATION_MS = 60000
-WAIT_FOR_TUNING_MS = 10000
-WATCHDOG_TIMEOUT_MS =6 * 60 * 1000
+WAIT_FOR_TUNING_MS = 30000
+WATCHDOG_TIMEOUT_MS = 6 * 60 * 1000
 
 MAX_INACTIVITY_TIME_MS = 60 * 60 * 1000 # min * sec * msec
 FIRST_INTERVAL_INACTIVITY_MS = MAX_INACTIVITY_TIME_MS / 32 # =112500 msec
@@ -44,7 +44,9 @@ print("RESTART IN: {}ms".format(RESTART_OFFSET_TIME_MS))
 
 
 log = logging.getLogger()
-SENSOR_CYCLE_COUNTER = 30
+SENSOR_CYCLE_COUNTER = 10
+
+
 ################################################################################
 # State Machine
 
@@ -67,9 +69,7 @@ class StateMachine(object):
         self.failedBackendCommunications = 0
         self.timeStateLog = []
         self.sensorOverThresholdFlag = False
-        self.sensorThresholdCounter = 0
-        self.sensorMinBufferZ = []
-        self.sensorMaxBufferZ = []
+
         # create instances of required objects
         try:
             self.sensor = MovementSensor()
@@ -92,47 +92,19 @@ class StateMachine(object):
         log.info("\033[0;35m[Core] Initializing magic... \033[0m ✨ ")
         log.info("[Core] Hello, I am %s",  ubinascii.hexlify(pycom_machine.unique_id()))
 
-
     def speed(self):
         """
         Calculate th maximum absolute speed value from current sensor values,
         over all axis.
         :return: the maximum value of the currently measured speed.
         """
-        self.max_speed = 0.0
-        self.min_speed = 0.0
-        i = 0
+        if self.sensor.speed_max > g_THRESHOLD:
+            # print("SPEED MAX= {}".format(self.sensor.speed_max))
+            return True
 
-        
-
-        while i < 3:
-            if self.sensor.speed_max[i] > self.max_speed:
-                self.max_speed = self.sensor.speed_max[i]
-
-            if self.sensor.speed_min[i] < self.min_speed:
-                self.min_speed = self.sensor.speed_min[i]
-
-            self.sensor.speed_min[i] = 0.0
-            self.sensor.speed_max[i] = 0.0
-            i += 1
-
-        if self.sensorThresholdCounter > 0:
-            self.sensorThresholdCounter -= 1
-            self.sensorMinBufferZ.append(self.min_speed)
-            self.sensorMaxBufferZ.append(self.max_speed)
-            if self.sensorThresholdCounter == 0:
-                return True
-
-        else:
-            # now check the movement into the same direction
-            if self.max_speed > g_THRESHOLD:
-                # print("SPEED MAX= {}".format(self.max_speed))
-                self.sensorThresholdCounter = SENSOR_CYCLE_COUNTER
-                # return True
-            if abs(self.min_speed) > g_THRESHOLD:
-                # print("SPEED MIN= {}".format(self.min_speed))
-                self.sensorThresholdCounter = SENSOR_CYCLE_COUNTER
-                # return True
+        if abs(self.sensor.speed_min) > g_THRESHOLD:
+            # print("SPEED MIN= {}".format(self.sensor.speed_min))
+            return True
 
         return False
 
@@ -350,7 +322,10 @@ class StateInitSystem(State):
         try:
             machine.uuid = machine.sim.get_uuid(machine.key_name)
         except Exception as e:
-            log.exception(str(e))
+            machine.lastError = str(e)
+            machine.go_to_state('error')
+            return
+            # log.exception(str(e))
         log.info("UUID: %s", str(machine.uuid))
 
         # send a X.509 Certificate Signing Request for the public key to the ubirch identity service (once)
@@ -375,7 +350,7 @@ class StateInitSystem(State):
         State.update(self, machine)
         now = time.ticks_ms()
         if now >= self.enter_timestamp + STANDARD_DURATION_MS:
-            machine.go_to_state('waitingForOvershoot')
+            machine.go_to_state('connecting')
 
 
 class StateConnecting(State):
@@ -497,7 +472,7 @@ class StateSendingDiagnostics(State):
         :return: String of the last errors
         :example: {'t':'1970-01-01T00:00:23Z','l':'ERROR','m':...}
         """
-        BACKUP_COUNT = 1 + 1
+        BACKUP_COUNT = 4 + 1
         last_log = ""
         error_counter = 0
         file_index = 1
@@ -572,15 +547,16 @@ class StateWaitingForOvershoot(State):
         now = time.ticks_ms()
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
             if sensor_moved:
-                # machine.go_to_state('measuringPaused')
+                machine.go_to_state('measuringPaused')
                 return
-        # else:
-        #     machine.speed()
+            # else:
+            #     machine.speed()
             # print("sensor tuning in with ({})".format(machine.speed()))
 
-        if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
-            # machine.go_to_state('inactive')
-            return
+            now = time.ticks_ms()
+            if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
+                machine.go_to_state('inactive')
+                return
 
 
 class StateMeasuringPaused(State):
@@ -601,42 +577,30 @@ class StateMeasuringPaused(State):
         machine.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
         machine.sensor.poll_sensors()
         event = ({
-            'properties.variables.isWorking': { 'value': True, 'sentAt': _formated_time()},
-            'properties.variables.acceleration': { 'value': 1 if machine.max_speed > abs(machine.min_speed) else -1},
-            'properties.variables.accelerationMax': { 'value': machine.max_speed},
-            'properties.variables.accelerationMin': { 'value': machine.min_speed},
-            'properties.variables.altitude': { 'value': machine.sensor.altitude},
-            'properties.variables.temperature': { 'value': machine.sensor.temperature}
+            'properties.variables.isWorking': {'value': True, 'sentAt': _formated_time()},
+            'properties.variables.acceleration': {
+                'value': 1 if machine.sensor.speed_max > abs(machine.sensor.speed_min) else -1},
+            'properties.variables.accelerationMax': {'value': machine.sensor.speed_max},
+            'properties.variables.accelerationMin': {'value': machine.sensor.speed_min},
+            'properties.variables.altitude': {'value': machine.sensor.altitude},
+            'properties.variables.temperature': {'value': machine.sensor.temperature}
         })
         _send_event(machine, event, ubirching=True)
         # now send the state log also
-        event = ({'properties.variables.lastLogContent':{'value': _concat_state_log(machine)}})
+        event = ({'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}})
         _send_event(machine, event)
-
-        sensor_string = ""
-        print("###")
-        for i in range(len(machine.sensorMinBufferZ)):
-            sensor_string += ("{:.3f}, ".format(machine.sensorMinBufferZ[i]))
-        for i in range(len(machine.sensorMaxBufferZ)):
-            sensor_string += ("{:.3f}, ".format(machine.sensorMaxBufferZ[i]))
-        print(sensor_string)
-        event = ({'properties.variables.lastLogContent': {'value': sensor_string.rstrip(",")}})
-        _send_event(machine, event)
-
-        machine.sensorMinBufferZ.clear()
-        machine.sensorMaxBufferZ.clear()
 
     def exit(self, machine):
-        # reset the speed values for next time
-        machine.sensor.speed_max[0] = 0.0
-        machine.sensor.speed_max[1] = 0.0
-        machine.sensor.speed_max[2] = 0.0
-        machine.sensor.speed_min[0] = 0.0
-        machine.sensor.speed_min[1] = 0.0
-        machine.sensor.speed_min[2] = 0.0
-
-        machine.sensor.accel_max = 0.0
-        machine.sensor.accel_min = 0.0
+        # # reset the speed values for next time
+        # machine.sensor.speed_max[0] = 0.0
+        # machine.sensor.speed_max[1] = 0.0
+        # machine.sensor.speed_max[2] = 0.0
+        # machine.sensor.speed_min[0] = 0.0
+        # machine.sensor.speed_min[1] = 0.0
+        # machine.sensor.speed_min[2] = 0.0
+        #
+        # machine.sensor.accel_max = 0.0
+        # machine.sensor.accel_min = 0.0
         State.exit(self, machine)
 
     def update(self, machine):
@@ -833,6 +797,7 @@ def _send_event(machine, event: dict, ubirching:bool=False):
     print("SENDING")
 
     # make the elevate data package
+    elevate_serialized = serialize_json(event)
     log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
 
     try:
@@ -861,12 +826,12 @@ def _send_event(machine, event: dict, ubirching:bool=False):
             while len(events) > 0:
                 # send data message to data service, with reconnects/modem resets if necessary
                 status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                            machine.elevate_api.send_data, machine.uuid,
-                                                            events[0])
+                                                         machine.elevate_api.send_data, machine.uuid,
+                                                         events[0])
                 log.debug("RESPONSE: {}".format(content))
 
                 if not 200 <= status_code < 300:
-                    log.error("BACKEND RESP {}: {}".format(status_code, content))      # TODO check error log content!
+                    log.error("BACKEND RESP {}: {}".format(status_code, content))  # TODO check error log content!
                     write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
                     if ubirching:
                         write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
@@ -891,10 +856,13 @@ def _send_event(machine, event: dict, ubirching:bool=False):
                 while len(upps) > 0:
                     # send UPP to the ubirch authentication service to be anchored to the blockchain
                     status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                                 machine.api.send_upp, machine.uuid, ubinascii.unhexlify(upps[0]))
+                                                             machine.api.send_upp, machine.uuid,
+                                                             ubinascii.unhexlify(upps[0]))
                     try:
-                        log.debug("NIOMON RESPONSE: ({}) {}".format(status_code, "" if status_code == 200 else ubinascii.hexlify(content).decode()))
-                    except Exception: # this is only excaption handling in case the content can not be decyphered
+                        log.debug("NIOMON RESPONSE: ({}) {}".format(status_code,
+                                                                    "" if status_code == 200 else ubinascii.hexlify(
+                                                                        content).decode()))
+                    except Exception:  # this is only excaption handling in case the content can not be decyphered
                         pass
                     # communication worked in general, now check server response
                     if not 200 <= status_code < 300 and not status_code == 409:
@@ -903,7 +871,8 @@ def _send_event(machine, event: dict, ubirching:bool=False):
                         # UPP was sent successfully and can be removed from backlog
                         upps.pop(0)
 
-            else: pass
+            else:
+                pass
         except Exception:
             # sending failed, write unsent messages to flash and terminate
             raise
@@ -941,8 +910,8 @@ def _send_emergency_event(machine, event: dict):
         machine.connection.ensure_connection()
         # send data message to data service, with reconnects/modem resets if necessary
         status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                    machine.elevate_api.send_data, machine.uuid,
-                                                    json.dumps(event))
+                                                 machine.elevate_api.send_data, machine.uuid,
+                                                 json.dumps(event))
         log.debug("RESPONSE: {}".format(content))
 
     except Exception as e:
@@ -966,7 +935,7 @@ def _get_state_from_backend(machine):
     try:
         machine.connection.ensure_connection()
         status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                        machine.elevate_api.get_state, machine.uuid, '')
+                                                      machine.elevate_api.get_state, machine.uuid, '')
         # communication worked in general, now check server response
         if not 200 <= status_code < 300:
             log.error("Elevate backend returned HTTP error code {}".format(status_code))

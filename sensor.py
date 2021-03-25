@@ -7,20 +7,22 @@ from sensor_config import *
 
 # TODO, simplify the filtering and data
 
-log_file = "log_raw.dat.1"
+log_in_file = "log_raw.dat.10"
+log_out_file = "log_filtered.dat.10"
 
-def make_new_logfile():
-    global log_file
+def make_new_logfile(filename):
     mount_sd()
-    while log_file in os.listdir('/sd'):
-        num = log_file.split(".")
+    while filename in os.listdir('/sd'):
+        num = filename.split(".")
         print("OLD name ={}.{} num ={}".format(num[0], num[1], num[2]))
         number = int(num[2]) + 1
         log_file_new = "{}.{}.{}".format(num[0], num[1], number)
         print("NEW = {}".format(log_file_new))
-        log_file = log_file_new
+        filename = log_file_new
     else:
         print("NO FILE FOUND")
+
+    return filename
 
 class MovementSensor(object):
 
@@ -33,10 +35,8 @@ class MovementSensor(object):
         self.speed_smooth = []
         self.speed_filtered = []
         self.speed_filtered_smooth = []
-        self.speed_max = [0.0, 0.0, 0.0]
-        self.speed_min = [0.0, 0.0, 0.0]
-        self.accel_max = 0.0
-        self.accel_min = 0.0
+        self.speed_max = 0.0
+        self.speed_min = 0.0
         self.altitude = 0.0
         self.temperature = 0.0
         self.trigger = False        # todo rename this variable to indicate, what happens
@@ -44,7 +44,8 @@ class MovementSensor(object):
         self.last_print_ms = 0
         self.last_start_ms = 0
 
-        make_new_logfile()
+        self.log_in_file = make_new_logfile(log_in_file)
+        self.log_out_file = make_new_logfile(log_out_file)
 
         self.globals_init()
 
@@ -71,6 +72,8 @@ class MovementSensor(object):
 
         # set highpass filter
         # self.pysense.accelerometer.set_high_pass(1)
+        # reset highpass filter
+        self.pysense.accelerometer.reset_high_pass()
 
         # enable activity interrupt
         print("start")
@@ -137,8 +140,13 @@ class MovementSensor(object):
 
     # calculate the speed from the given acceleration values
     def calc_speed(self):
+        timestamp = time.time()
+        timestamp_ms = time.ticks_ms()
         z_buffer_accel_raw = []
-        z_buffer_accel_raw.append("{},{},".format(time.time(), time.ticks_ms()))
+        z_buffer_accel_raw.append("{},{},".format(timestamp, timestamp_ms))
+        z_buffer_accel_filtered = []
+        z_buffer_accel_filtered.append("{},{},".format(timestamp, timestamp_ms))
+
         self.trigger = False
         ACCELERATION_FILTER1_ALPHA = 0.0137 /3
         ACCELERATION_FILTER2_ALPHA = 0.0137 *3
@@ -174,25 +182,29 @@ class MovementSensor(object):
                 # Another low-pass filter on the result to remove jitter.
                 self.speed_filtered_smooth[i][j] = SPEED_FILTER2_ALPHA * self.speed_filtered[i][j] \
                                                    + (1 - SPEED_FILTER2_ALPHA) * self.speed_filtered_smooth[i -1][j]
-                if self.speed_filtered_smooth[i][j] > self.speed_max[j]:
-                    self.speed_max[j] = self.speed_filtered_smooth[i][j]
-                if self.speed_filtered_smooth[i][j] < self.speed_min[j]:
-                    self.speed_min[j] = self.speed_filtered_smooth[i][j]
-
-                if self.accel_filtered_smooth[i][j] > self.accel_max:
-                    self.accel_max = self.accel_filtered_smooth[i][j]
-                if self.accel_filtered_smooth[i][j] < self.accel_min:
-                    self.accel_min = self.accel_filtered_smooth[i][j]
 
                 j += 1
 
             z_buffer_accel_raw.append("{:.6f},".format(self.accel_xyz[i][2]))
+            z_buffer_accel_filtered.append("{:.6f},".format(self.speed_filtered_smooth[i][2]))
+
             i += 1
+
+        self.speed_min = min(min(self.speed_filtered_smooth))
+        self.speed_max = max(max(self.speed_filtered_smooth))
+
+
         z_buffer_accel_raw.append("\n")
-        with open('/sd/' + log_file, 'a') as file:
+        with open('/sd/' + self.log_in_file, 'a') as file:
             for raw_data in z_buffer_accel_raw:
                 file.write(raw_data)
         z_buffer_accel_raw.clear()
+
+        z_buffer_accel_filtered.append("\n")
+        with open('/sd/' + self.log_out_file, 'a') as file:
+            for filtered_data in z_buffer_accel_filtered:
+                file.write(filtered_data)
+        z_buffer_accel_filtered.clear()
 
         # print(self.speed_min, self.speed_max)
         return # self.speed_max, self.speed_min
