@@ -401,11 +401,11 @@ class StateConnecting(State):
     def name(self):
         return 'connecting'
 
-    def enter(self, machine):
+    def enter(self, machine): # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         State.enter(self, machine)
         machine.breath.set_color(LED_WHITE)
 
-    def exit(self, machine):
+    def exit(self, machine): # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         State.exit(self, machine)
 
     def _connect(self, machine):
@@ -431,7 +431,7 @@ class StateConnecting(State):
 
         except Exception as e:
             machine.lastError = str(e)
-            machine.go_to_state('error')
+            machine.go_to_state('error') # CHECK: it might be cleaner to do the state transition in the update functions only (i.e. move this line to update())
             return False
 
         finally:
@@ -439,7 +439,7 @@ class StateConnecting(State):
 
         return True
 
-    def update(self, machine):
+    def update(self, machine): # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         State.update(self, machine)
         if self._connect(machine):
             machine.go_to_state('sendingDiagnostics')
@@ -462,12 +462,13 @@ class StateSendingDiagnostics(State):
         State.enter(self, machine)
         machine.breath.set_color(LED_YELLOW)
 
+        # CHECK: unsure if sending might not be better placed in update(), especially because of possible exceptions?
         # check the errors in the log and send it
         last_log = self._read_log(2)
-        print("LOG: {}".format(last_log))
+        print("LOG: {}".format(last_log)) # CHECK: move print into if clause? or do we want to print an empty 'LOG:' line?
         if last_log != "":
             event = ({'properties.variables.lastLogContent': {'value': last_log}})
-            _send_event(machine, event)
+            _send_event(machine, event) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
         # get the firmware version from OTA
         version = self._get_current_version()
@@ -482,16 +483,16 @@ class StateSendingDiagnostics(State):
                   'properties.variables.firmwareVersion': {'value': version},
                   'properties.variables.resetCause': {'value': RESET_REASON, "sentAt": _formated_time()}})
 
-        _send_event(machine, event)
+        _send_event(machine, event) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
     def exit(self, machine):
-        # set the restart timer for filter tuning
+        # set the restart timer for filter tuning # CHECK: lost comment or missing code
         State.exit(self, machine)
 
     def update(self, machine):
         State.update(self, machine)
         now = time.ticks_ms()
-        if now >= self.enter_timestamp + STANDARD_DURATION_MS:
+        if now >= self.enter_timestamp + STANDARD_DURATION_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             machine.go_to_state('waitingForOvershoot')
 
     def _get_current_version(self):
@@ -508,17 +509,20 @@ class StateSendingDiagnostics(State):
         :return: String of the last errors
         :example: {'t':'1970-01-01T00:00:23Z','l':'ERROR','m':...}
         """
-        BACKUP_COUNT = 4 + 1
+        BACKUP_COUNT = 4 + 1 # CHECK: why '4', why '+1' ?
         last_log = ""
         error_counter = 0
         file_index = 1
         filename = logging.FILENAME
+        # CHECK: might be nicer to build a list of files to parse by checking for existence in a for loop first (list = mylog.txt, mylog.txt.1, etc) 
+        # and then handle parsing for errors by iterating over that list ('for logfile in all_logfiles_list'), to avoid the repetitive code below i.e.
+        # determine which logfiles exist, then parse them starting with the newest one and break when num_errors is reached
         if filename in os.listdir():
             with open(filename, 'r') as reader:
-                lines = reader.readlines()
+                lines = reader.readlines() # CHECK: i think we can close the reader after this point (not needed while analyzing lines)
                 for line in reversed(lines):
                     # only take the error messages from the log
-                    if "ERROR" in line[:42]:  # only look at the beginning of the line
+                    if "ERROR" in line[:42]:  # only look at the beginning of the line # CHECK: why '42'?
                         error_counter += 1
                         if error_counter > num_errors:
                             file_index = BACKUP_COUNT
@@ -526,7 +530,7 @@ class StateSendingDiagnostics(State):
                         last_log += (line.rstrip('\n'))
                         # check if the message was closed with "}", if not, add it to ensure json
                         if not "}" in line:
-                            last_log += "},"
+                            last_log += "}," # CHECK: if the last '}' is missing, doesnt this create a bracket imbalance? why would there be a '{' without an '}'?
                         else:
                             last_log += ","
                     else:
@@ -535,17 +539,17 @@ class StateSendingDiagnostics(State):
             if (filename + '.{}'.format(file_index)) in os.listdir():
                 with open((filename + '.{}'.format(file_index)), 'r') as reader:
                     # print("file {} opened".format(file_index))
-                    lines = reader.readlines()
+                    lines = reader.readlines() # CHECK: i think we can close the reader after this point (not needed while analyzing lines)
                     for line in reversed(lines):
                         # only take the error messages from the log
-                        if "ERROR" in line[:42]:  # only look at the beginning of the line
+                        if "ERROR" in line[:42]:  # only look at the beginning of the line # CHECK: why '42'?
                             error_counter += 1
                             if error_counter > num_errors:
                                 file_index = BACKUP_COUNT
                                 break
                             last_log += (line.rstrip('\n'))
                             if not "}" in line:
-                                last_log += "},"
+                                last_log += "}," # CHECK: if the last '}' is missing, doesnt this create a bracket imbalance? why would there be a '{' without an '}'?
                             else:
                                 last_log += ","
                         else:
@@ -788,11 +792,11 @@ class StateError(State):
 
     def exit(self, machine):
         """ This is intentionally left empty, because this point should never be entered"""
-        pass
+        pass # CHECK: if this should never be entered unless something goes very wrong, it might be better to raise an error instead of silently passing here
 
     def update(self, machine):
         """ This is intentionally left empty, because this point should never be entered"""
-        pass
+        pass # CHECK: if this should never be entered unless something goes very wrong, it might be better to raise an error instead of silently passing here
 
 
 class StateBootloader(State):
@@ -830,7 +834,7 @@ class StateBootloader(State):
 
 ################################################################################
 
-def _send_event(machine, event: dict, ubirching: bool = False):
+def _send_event(machine, event: dict, ubirching: bool = False): # CHECK: maybe move this into machine? but its a bit unclear if machine class represents 'the state machine' or 'the system'
     """
     Send the data to elevate and the UPP to ubirch
     :param ubirching:
@@ -931,7 +935,7 @@ def _send_event(machine, event: dict, ubirching: bool = False):
         machine.failedBackendCommunications += 1
         if machine.failedBackendCommunications > 3:
             log.exception(str(e) + "doing RESET")
-            machine.go_to_state('error')
+            machine.go_to_state('error') # CHECK: state transistion in global function (outside of state / state machine)
         else:
             log.exception(str(e))
 
@@ -939,7 +943,7 @@ def _send_event(machine, event: dict, ubirching: bool = False):
         machine.connection.disconnect()
 
 
-def _send_emergency_event(machine, event: dict):
+def _send_emergency_event(machine, event: dict):# CHECK: maybe move this into machine? but its a bit unclear if machine class represents 'the state machine' or 'the system'
     """
     # Send an emergency event to elevate
     :param machine: state machine, which provides the connection and the ubirch protocol
