@@ -220,6 +220,8 @@ class State(object):
         # i.e. update() could consist of breath_update() and do_update() or similar. (See enter())
         machine.breath.update()
 
+        # CHECK: this is always called, regardless of if the state actually needs to know about movement
+        # should probably be located somewhere else
         if machine.sensor.trigger:
             machine.sensor.calc_speed()
             if machine.speed():
@@ -577,16 +579,16 @@ class StateWaitingForOvershoot(State):
             machine.breath.set_color(LED_PURPLE)
         except Exception as e:
             log.exception(str(e))
-            machine.go_to_state('error')
+            machine.go_to_state('error') # CHECK: recursive enter()
 
     def exit(self, machine):
         State.exit(self, machine)
 
     def update(self, machine):
-        sensor_moved = State.update(self, machine)
+        sensor_moved = State.update(self, machine) # CHECK: the movement detection is kind of hidden in update() and seems misplaced, see also the comment in State.update()
         # wait 30 seconds for filter to tune in
         now = time.ticks_ms()
-        if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
+        if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:# CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             if sensor_moved:
                 machine.go_to_state('measuringPaused')
                 return
@@ -594,8 +596,8 @@ class StateWaitingForOvershoot(State):
             #     machine.speed()
             # print("sensor tuning in with ({})".format(machine.speed()))
 
-            now = time.ticks_ms()
-            if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
+            now = time.ticks_ms() # CHECK: kind of redundant
+            if now >= self.enter_timestamp + machine.intervalForInactivityEventMs: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
                 machine.go_to_state('inactive')
                 return
 
