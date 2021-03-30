@@ -223,7 +223,9 @@ class State(object):
         # CHECK: this is always called, regardless of if the state actually needs to know about movement
         # should probably be located somewhere else
         if machine.sensor.trigger:
-            machine.sensor.calc_speed()
+            machine.sensor.calc_speed() # CHECK: there is no real guarantee how often update is executed for each state (blocking operations), since other states
+                                        # depend on the values updated by calc_speed I am unsure if it works as expected when called from here
+                                        # if this needs to run regularly regardless of state, machine Timer module or simnilar callbacks/interrupts might be a solution
             if machine.speed():
                 return True
         return False
@@ -242,7 +244,7 @@ class StateInitSystem(State):
         return 'initSystem'
 
     def enter(self, machine):
-        State.enter(self, machine)
+        State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         machine.breath.set_color(LED_TURQUOISE)
 
         try:
@@ -372,10 +374,10 @@ class StateInitSystem(State):
                 # CHECK: shouldn't this transition to an error state? With the current implementation the system will transition to next state without sending CSR
 
     def exit(self, machine):
-        State.exit(self, machine)
+        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
 
     def update(self, machine):
-        State.update(self, machine)
+        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         now = time.ticks_ms()
         if now >= self.enter_timestamp + STANDARD_DURATION_MS: # CHECK: this is not overflow/wraparound-safe, as "now" can go back to zero.
                                                                # Should usually be "if (now - back_then) >= wait_duration:" for uint, but additionally the docs say
@@ -461,7 +463,7 @@ class StateSendingDiagnostics(State):
 
     def enter(self, machine):
         global RESET_REASON
-        State.enter(self, machine)
+        State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         machine.breath.set_color(LED_YELLOW)
 
         # CHECK: unsure if sending might not be better placed in update(), especially because of possible exceptions?
@@ -489,10 +491,10 @@ class StateSendingDiagnostics(State):
 
     def exit(self, machine):
         # set the restart timer for filter tuning # CHECK: lost comment or missing code
-        State.exit(self, machine)
+        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
 
     def update(self, machine):
-        State.update(self, machine)
+        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         now = time.ticks_ms()
         if now >= self.enter_timestamp + STANDARD_DURATION_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             machine.go_to_state('waitingForOvershoot')
@@ -575,14 +577,14 @@ class StateWaitingForOvershoot(State):
 
     def enter(self, machine):
         try:
-            State.enter(self, machine)
+            State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
             machine.breath.set_color(LED_PURPLE)
         except Exception as e:
             log.exception(str(e))
             machine.go_to_state('error') # CHECK: recursive enter()
 
     def exit(self, machine):
-        State.exit(self, machine)
+        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
 
     def update(self, machine):
         sensor_moved = State.update(self, machine) # CHECK: the movement detection is kind of hidden in update() and seems misplaced, see also the comment in State.update()
@@ -616,23 +618,23 @@ class StateMeasuringPaused(State):
         return 'measuringPaused'
 
     def enter(self, machine):
-        State.enter(self, machine)
+        State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         machine.breath.set_color(LED_GREEN)
         machine.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
         machine.sensor.poll_sensors()
         event = ({
             'properties.variables.isWorking': {'value': True, 'sentAt': _formated_time()},
             'properties.variables.acceleration': {
-                'value': 1 if machine.sensor.speed_max > abs(machine.sensor.speed_min) else -1},
+                'value': 1 if machine.sensor.speed_max > abs(machine.sensor.speed_min) else -1}, # CHECK: what should this detect? direction? if yes: unsure if this works with single max/min values
             'properties.variables.accelerationMax': {'value': machine.sensor.speed_max},
             'properties.variables.accelerationMin': {'value': machine.sensor.speed_min},
             'properties.variables.altitude': {'value': machine.sensor.altitude},
             'properties.variables.temperature': {'value': machine.sensor.temperature}
         })
-        _send_event(machine, event, ubirching=True)
+        _send_event(machine, event, ubirching=True) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         # now send the state log also
-        event = ({'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}})
-        _send_event(machine, event)
+        event = ({'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}}) # CHECK: if _send_event (on next line) fails, the state log is lost (_concat_state_log clears it immediately)
+        _send_event(machine, event) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
     def exit(self, machine):
         # # reset the speed values for next time
@@ -645,12 +647,12 @@ class StateMeasuringPaused(State):
         #
         # machine.sensor.accel_max = 0.0
         # machine.sensor.accel_min = 0.0
-        State.exit(self, machine)
+        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
 
     def update(self, machine):
-        State.update(self, machine)
+        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         now = time.ticks_ms()
-        if now >= self.enter_timestamp + OVERSHOOT_DETECTION_PAUSE_MS:
+        if now >= self.enter_timestamp + OVERSHOOT_DETECTION_PAUSE_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             machine.go_to_state('waitingForOvershoot')
 
 
@@ -671,7 +673,7 @@ class StateInactive(State):
         return 'inactive'
 
     def enter(self, machine):
-        State.enter(self, machine)
+        State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         machine.breath.set_color(LED_BLUE)
 
         if machine.intervalForInactivityEventMs < MAX_INACTIVITY_TIME_MS:
@@ -681,7 +683,7 @@ class StateInactive(State):
         event = ({
             'properties.variables.altitude': {'value': machine.sensor.altitude},
             'properties.variables.temperature': {'value': machine.sensor.temperature},
-            'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}
+            'properties.variables.lastLogContent': {'value': _concat_state_log(machine)} # CHECK: if _send_event (on next line) fails, the state log is lost (_concat_state_log clears it immediately)
         })
         _send_event(machine, event)
 
@@ -690,10 +692,10 @@ class StateInactive(State):
         log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
 
     def exit(self, machine):
-        State.exit(self, machine)
+        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
 
     def update(self, machine):
-        sensor_moved = State.update(self, machine)
+        sensor_moved = State.update(self, machine) # CHECK: the movement detection is kind of hidden in update() and seems misplaced, see also the comment in State.update()
         # wait for filter to tune in
         now = time.ticks_ms()
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
@@ -742,15 +744,15 @@ class StateBlinking(State):
         return 'blinking'
 
     def enter(self, machine):
-        State.enter(self, machine)
+        State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         machine.breath.set_blinking()
 
     def exit(self, machine):
-        State.exit(self, machine)
+        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         machine.breath.reset_blinking()
 
     def update(self, machine):
-        State.update(self, machine)
+        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         now = time.ticks_ms()
         if now >= self.enter_timestamp + BLINKING_DURATION_MS:
             machine.go_to_state('inactive')  # this is neccessary to fetch a new state from backend
@@ -771,7 +773,7 @@ class StateError(State):
 
     def enter(self, machine):
         try:  # just build that in, because of recent error, which caused the controller to be BRICKED TODO: check this again
-            State.enter(self, machine)
+            State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
             machine.breath.set_color(LED_RED)
 
             if machine.lastError:
@@ -817,7 +819,7 @@ class StateBootloader(State):
 
     def enter(self, machine):
         try:  # just build tha in, because of recent error, which caused the controller to be BRICKED TODO: check this again
-            State.enter(self, machine)
+            State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
             machine.breath.set_color(LED_RED)
             machine.sim.deinit()
 
