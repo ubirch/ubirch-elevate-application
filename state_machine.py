@@ -677,7 +677,7 @@ class StateInactive(State):
         machine.breath.set_color(LED_BLUE)
 
         if machine.intervalForInactivityEventMs < MAX_INACTIVITY_TIME_MS:
-            machine.intervalForInactivityEventMs *= EXP_BACKOFF_INACTIVITY
+            machine.intervalForInactivityEventMs *= EXP_BACKOFF_INACTIVITY # CHECK: in the worst case, max inactivity interval might be almost twice as big as MAX_INACTIVITY_TIME_MS. might need additional 'if' for capping
 
         machine.sensor.poll_sensors()
         event = ({
@@ -685,9 +685,9 @@ class StateInactive(State):
             'properties.variables.temperature': {'value': machine.sensor.temperature},
             'properties.variables.lastLogContent': {'value': _concat_state_log(machine)} # CHECK: if _send_event (on next line) fails, the state log is lost (_concat_state_log clears it immediately)
         })
-        _send_event(machine, event)
+        _send_event(machine, event)# CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
-        self.new_log_level, self.new_state = _get_state_from_backend(machine)
+        self.new_log_level, self.new_state = _get_state_from_backend(machine) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
 
@@ -698,7 +698,7 @@ class StateInactive(State):
         sensor_moved = State.update(self, machine) # CHECK: the movement detection is kind of hidden in update() and seems misplaced, see also the comment in State.update()
         # wait for filter to tune in
         now = time.ticks_ms()
-        if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:
+        if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             if sensor_moved:
                 machine.go_to_state('measuringPaused')
                 return
@@ -706,16 +706,18 @@ class StateInactive(State):
         #     machine.speed()
         # print("sensor tuning in with ({})".format(machine.speed()))
 
-        if now >= self.enter_timestamp + machine.intervalForInactivityEventMs:
+        if now >= self.enter_timestamp + machine.intervalForInactivityEventMs: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             machine.go_to_state('inactive')
             return
 
-        if now >= machine.startTime + RESTART_OFFSET_TIME_MS:
+        if now >= machine.startTime + RESTART_OFFSET_TIME_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             log.info("its time to restart")
             machine.go_to_state('bootloader')
             return
 
-        self._adjust_level_state(machine, self.new_log_level, self.new_state)
+        self._adjust_level_state(machine, self.new_log_level, self.new_state) # CHECK: Possible BUG: this *always* sets a new state (either blinking, bootloader, error, or waitingForOvershoot)
+                                                                              # and thus, we will always *immediately* leave the 'inactive' state, making the if cases/transistions above useless
+                                                                              # (unless restart time is already over when entering 'inactive' state)
 
     def _adjust_level_state(self, machine, level, state):
         """
@@ -982,6 +984,7 @@ def _get_state_from_backend(machine):
     """
     level = ""
     state = ""
+    # CHECK: TODO: document what the backend might reply, e.g. especially if "empty" state information is possible
 
     # send data message to data service, with reconnects/modem resets if necessary
     try:
@@ -1041,6 +1044,7 @@ def _state_switcher(state: str):
     :param state: new state given from the backend
     :return: translated state for state_machine
     """
+    # CHECK: TODO: document what the backend might reply, e.g. especially if "empty" state information is possible
     switcher = {
         'installation': 'waitingForOvershoot',
         'blinking': 'blinking',
