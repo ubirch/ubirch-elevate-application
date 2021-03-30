@@ -756,7 +756,7 @@ class StateBlinking(State):
     def update(self, machine):
         State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         now = time.ticks_ms()
-        if now >= self.enter_timestamp + BLINKING_DURATION_MS:
+        if now >= self.enter_timestamp + BLINKING_DURATION_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             machine.go_to_state('inactive')  # this is neccessary to fetch a new state from backend
 
 

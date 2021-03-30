@@ -335,7 +335,7 @@ def write_backlog(unsent_msgs: list, backlog_file: str, max_len: int) -> None:
         return
 
     # do not let backlog grow too big
-    if len(unsent_msgs) > max_len:
+    if len(unsent_msgs) > max_len: # CHECK: this assumes that unsent_msgs is always at most 1 message larger than max_len. Maybe need to remove more than 1 message?
         unsent_msgs.pop(0) # throw away the oldest message
 
     # store unsent messages
