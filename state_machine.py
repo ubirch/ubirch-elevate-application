@@ -1000,7 +1000,7 @@ def _get_state_from_backend(machine):
             log.error("Elevate backend returned HTTP error code {}".format(status_code))
     except Exception as e:
         log.exception(str(e))
-        machine.go_to_state('error')
+        machine.go_to_state('error') # CHECK: state transistion in global function (outside of state / state machine), might be better to return success/fail (or use exceptions) and handle transition in the state machine
 
     finally:
         machine.connection.disconnect()
