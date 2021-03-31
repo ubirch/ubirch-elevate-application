@@ -857,7 +857,7 @@ def _send_event(machine, event: dict, ubirching: bool = False): # CHECK: maybe m
 
     try:
         if ubirching:
-            elevate_serialized = serialize_json(event)
+            elevate_serialized = serialize_json(event) # CHECK: redundant: already performed in line 855
             # unlock SIM
             machine.sim.sim_auth(machine.pin)
 
@@ -941,12 +941,15 @@ def _send_event(machine, event: dict, ubirching: bool = False): # CHECK: maybe m
         machine.failedBackendCommunications += 1
         if machine.failedBackendCommunications > 3:
             log.exception(str(e) + "doing RESET")
-            machine.go_to_state('error') # CHECK: state transistion in global function (outside of state / state machine)
+            machine.go_to_state('error') # CHECK: state transistion in global function (outside of state / state machine), might be better to return success/fail and handle transition in the state machine
         else:
             log.exception(str(e))
 
     finally:
         machine.connection.disconnect()
+        # CHECK: I'm not 100% sure, but it might be possible to move the write_backlog calls from above here as
+        # this 'finally' block should be executed even if there is a return in the code above (will run just before returning from this function)
+        # but might also make code less readable maybe
 
 
 def _send_emergency_event(machine, event: dict):# CHECK: maybe move this into machine? but its a bit unclear if machine class represents 'the state machine' or 'the system'
