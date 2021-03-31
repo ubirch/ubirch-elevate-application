@@ -962,6 +962,7 @@ def _send_emergency_event(machine, event: dict):# CHECK: maybe move this into ma
     print("SENDING")
 
     # make the elevate data package
+    # CHECK: maybe assign result of json.dumps(event) here and reuse it instead of calling json.dumps(event) twice in this function
     log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
 
     try:
