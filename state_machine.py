@@ -27,18 +27,19 @@ BACKLOG_MAX_LEN = 10  # max number of events / UPPs in the backlogs
 VERSION_FILE = "OTA_VERSION.txt"
 
 # timing
-STANDARD_DURATION_MS = 500
-BLINKING_DURATION_MS = 60000
-WAIT_FOR_TUNING_MS = 30000
+STANDARD_DURATION_S = 1
+BLINKING_DURATION_S = 60
+WAIT_FOR_TUNING_S = 30
+
 WATCHDOG_TIMEOUT_MS = 6 * 60 * 1000
 
-MAX_INACTIVITY_TIME_MS = 60 * 60 * 1000  # min * sec * msec
-FIRST_INTERVAL_INACTIVITY_MS = MAX_INACTIVITY_TIME_MS / 32  # =225000 msec
+MAX_INACTIVITY_TIME_S = 60 * 60  # min * sec
+FIRST_INTERVAL_INACTIVITY_S = MAX_INACTIVITY_TIME_S / 16  # =225 sec
 EXP_BACKOFF_INACTIVITY = 2
-OVERSHOOT_DETECTION_PAUSE_MS = 60 * 1000  # sec * msec
+OVERSHOOT_DETECTION_PAUSE_S = 60  # sec
 
-RESTART_OFFSET_TIME_MS = 24 * 60 * 60 * 1000 + (int.from_bytes(os.urandom(3), "big") % 0x3FFFFF)
-print("RESTART IN: {}ms".format(RESTART_OFFSET_TIME_MS))
+RESTART_OFFSET_TIME_S = 24 * 60 * 60 + (int.from_bytes(os.urandom(2), "big") % 0x0FFF) # define restart time = 1 day + (0 .. 4095) seconds
+print("RESTART IN: {} s".format(RESTART_OFFSET_TIME_S))
 
 log = logging.getLogger()
 SENSOR_CYCLE_COUNTER = 10
@@ -82,7 +83,7 @@ class StateMachine(object):
             pycom_machine.reset()
 
         # set all necessary time values
-        self.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
+        self.intervalForInactivityEventS = FIRST_INTERVAL_INACTIVITY_S
 
         self.startTime = 0
 
@@ -161,7 +162,7 @@ class State(object):
     """
 
     def __init__(self):
-        self.enter_timestamp = 0 # CHECK: since the reference point is arbitrary per the micropython docs,  time.ticks_ms() might be safer
+        self.enter_timestamp = 0
         pass
 
     @property
@@ -180,7 +181,7 @@ class State(object):
         :param machine: state machine, which has the state
         """
         log.debug('Entering {}'.format(self.name))
-        self.enter_timestamp = time.ticks_ms()
+        self.enter_timestamp = time.time()
         # add the timestamp and state name to a log, for later sending
         machine.timeStateLog.append(_formated_time() + ":" + self.name)
         self._enter(machine)
@@ -217,8 +218,6 @@ class State(object):
         :return: True, to indicate, the function was called.
         """
         movement = False
-        # CHECK: maybe for this, the same remark as for enter (forgetting to call State.update()) applies
-        # i.e. update() could consist of breath_update() and do_update() or similar. (See enter())
         machine.breath.update()
 
         # CHECK: this is always called, regardless of if the state actually needs to know about movement
@@ -320,8 +319,7 @@ class StateInitSystem(State):
                     f.write(machine.pin.encode())
             except Exception as e:
                 machine.lastError = str(e)
-                machine.go_to_state('error') # CHECK: state changes should not happen during enter() as it would recursively call enter of the next state
-                                             # if this code is moved into update() later the go_to_state() would be fine here
+                machine.go_to_state('error')
                 return
 
         # initialise ubirch SIM protocol
@@ -330,8 +328,7 @@ class StateInitSystem(State):
             machine.sim = ElevateSim(lte=machine.lte, at_debug=machine.debug)
         except Exception as e:
             machine.lastError = str(e)
-            machine.go_to_state('error')    # CHECK: state changes should not happen during enter() as it would recursively call enter of the next state
-                                            # if this code is moved into update() later the go_to_state() would be fine here
+            machine.go_to_state('error')
             return
 
         # unlock SIM
@@ -388,18 +385,8 @@ class StateInitSystem(State):
                 log.exception(str(e))
                 # CHECK: shouldn't this transition to an error state? With the current implementation the system will transition to next state without sending CSR
 
-        now = time.ticks_ms()
-        if now >= self.enter_timestamp + STANDARD_DURATION_MS: # CHECK: this is not overflow/wraparound-safe, as "now" can go back to zero.
-                                                               # Should usually be "if (now - back_then) >= wait_duration:" for uint, but additionally the docs say
-                                                               # 'Performing standard mathematical operations (+, -) or relational operators (<, <=, >, >=) 
-                                                               # directly on these value (=ticks) will lead to invalid result.' Instead ticks_diff() must be used:
-                                                               # start = time.ticks_ms()
-                                                               # while true:
-                                                               #     if time.ticks_diff(time.ticks_um(), start) > 500:
-                                                               #         print("Time over")
-                                                               # Order of arguments matters, too: (newer,older). Probably needs to be checked for every occurence of time.ticks_ms()
-                                                               # Documentation also states 'This function should not be used to measure arbitrarily long periods of time.' See also
-                                                               # micropython documentation for utime.
+        now = time.time()
+        if now >= self.enter_timestamp + STANDARD_DURATION_S:
             machine.go_to_state('connecting')
 
 
@@ -415,7 +402,7 @@ class StateConnecting(State):
     def name(self):
         return 'connecting'
 
-    def _enter(self, machine): # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+    def _enter(self, machine):
         machine.breath.set_color(LED_WHITE)
 
     def _exit(self, machine):
@@ -440,7 +427,7 @@ class StateConnecting(State):
                 if not board_time_valid():
                     raise Exception("Time sync failed", time.time())
             # update the start time
-            machine.startTime = time.ticks_ms()
+            machine.startTime = time.time()
 
         except Exception as e:
             machine.lastError = str(e)
@@ -500,8 +487,8 @@ class StateSendingDiagnostics(State):
 
         _send_event(machine, event) # CHECK: This might raise an exception which will not be caught
 
-        now = time.ticks_ms()
-        if now >= self.enter_timestamp + STANDARD_DURATION_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
+        now = time.time()
+        if now >= self.enter_timestamp + STANDARD_DURATION_S:
             machine.go_to_state('waitingForOvershoot')
 
     def _get_current_version(self):
@@ -588,8 +575,8 @@ class StateWaitingForOvershoot(State):
 
     def _update(self, machine, movement):
         # wait 30 seconds for filter to tune in
-        now = time.ticks_ms()
-        if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:# CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
+        now = time.time()
+        if now >= self.enter_timestamp + WAIT_FOR_TUNING_S:
             if movement:
                 machine.go_to_state('measuringPaused')
                 return
@@ -597,7 +584,7 @@ class StateWaitingForOvershoot(State):
             #     machine.sensor.movement()
             # print("sensor tuning in with ({})".format(machine.sensor.movement()))
 
-        if now >= self.enter_timestamp + machine.intervalForInactivityEventMs: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
+        if now >= self.enter_timestamp + machine.intervalForInactivityEventS:
             machine.go_to_state('inactive')
             return
 
@@ -622,7 +609,7 @@ class StateMeasuringPaused(State):
         pass
 
     def _update(self, machine, movement):
-        machine.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
+        machine.intervalForInactivityEventS = FIRST_INTERVAL_INACTIVITY_S
         machine.sensor.poll_sensors()
         event = ({
             'properties.variables.isWorking': {'value': True, 'sentAt': _formated_time()},
@@ -638,8 +625,8 @@ class StateMeasuringPaused(State):
         event = ({'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}})
         _send_event(machine, event) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
-        now = time.ticks_ms()
-        if now >= self.enter_timestamp + OVERSHOOT_DETECTION_PAUSE_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
+        now = time.time()
+        if now >= self.enter_timestamp + OVERSHOOT_DETECTION_PAUSE_S:
             machine.go_to_state('waitingForOvershoot')
 
 
@@ -659,33 +646,33 @@ class StateInactive(State):
     def name(self):
         return 'inactive'
 
-    def _enter(self, machine): # CHECK WG this enter does not fit to the general logic anymore
+    def _enter(self, machine):
         machine.breath.set_color(LED_BLUE)
 
-        if machine.intervalForInactivityEventMs < MAX_INACTIVITY_TIME_MS:
-            machine.intervalForInactivityEventMs *= EXP_BACKOFF_INACTIVITY
+        if machine.intervalForInactivityEventS < MAX_INACTIVITY_TIME_S:
+            machine.intervalForInactivityEventS *= EXP_BACKOFF_INACTIVITY
         else:
-            machine.intervalForInactivityEventMs = MAX_INACTIVITY_TIME_MS
+            machine.intervalForInactivityEventS = MAX_INACTIVITY_TIME_S
 
         machine.sensor.poll_sensors()
         event = ({
             'properties.variables.altitude': {'value': machine.sensor.altitude},
-            'properties.variables.temperature': {'value': machine.sensor.temperature}, # TODO fix lastLogContent,
-            'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}
+            'properties.variables.temperature': {'value': machine.sensor.temperature} # TODO fix lastLogContent,
+#            'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}
         })
         _send_event(machine, event)# CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
         self.new_log_level, self.new_state = _get_state_from_backend(machine) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
-        log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
+        log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventS))
 
     def _exit(self, machine):
         pass
 
     def _update(self, machine, movement):
         # wait for filter to tune in
-        now = time.ticks_ms()
-        if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
+        now = time.time()
+        if now >= self.enter_timestamp + WAIT_FOR_TUNING_S:
             if movement:
                 machine.go_to_state('measuringPaused')
                 return
@@ -693,11 +680,11 @@ class StateInactive(State):
         #     machine.sensor.movement()
         # print("sensor tuning in with ({})".format(machine.sensor.movement()))
 
-        if now >= self.enter_timestamp + machine.intervalForInactivityEventMs: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
+        if now >= self.enter_timestamp + machine.intervalForInactivityEventS:
             machine.go_to_state('inactive')
             return
 
-        if now >= machine.startTime + RESTART_OFFSET_TIME_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
+        if now >= machine.startTime + RESTART_OFFSET_TIME_S:
             log.info("its time to restart")
             machine.go_to_state('bootloader')
             return
@@ -737,8 +724,8 @@ class StateBlinking(State):
         machine.breath.reset_blinking()
 
     def _update(self, machine, movement):
-        now = time.ticks_ms()
-        if now >= self.enter_timestamp + BLINKING_DURATION_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
+        now = time.time()
+        if now >= self.enter_timestamp + BLINKING_DURATION_S:
             machine.go_to_state('inactive')  # this is neccessary to fetch a new state from backend
 
 
@@ -796,21 +783,19 @@ class StateBootloader(State):
     def name(self):
         return 'bootloader'
 
-    def _enter(self, machine): # CHECK WG: move this to update
-        try:  # just build tha in, because of recent error, which caused the controller to be BRICKED TODO: check this again
-            machine.breath.set_color(LED_RED)
+    def _enter(self, machine):
+        machine.breath.set_color(LED_WHITE_BRIGHT)
+
+    def _exit(self, machine):
+        raise SystemError("exiting the bootloader state should never happen here")
+
+    def _update(self, machine, movement):
+        try:  # just build tha in, because of recent error, which caused the controller to hang
             machine.sim.deinit()
 
         finally:
             time.sleep(1)
             pycom_machine.reset()
-
-    def _exit(self, machine):
-        raise SystemError("exiting the bootloader state should never happen here")
-
-    def _update(self, machine, movement): # CHECK WG: move from enter to update
-        """ This is intentionally left empty, because this point should never be entered"""
-        pass
 
 
 ################################################################################
