@@ -638,7 +638,7 @@ class StateSendingDiagnostics(State):
         global RESET_REASON
         # check the errors in the log and send it
         last_log = self._read_log(2)
-        if last_log != "":
+        if not last_log == "":
             print("LOG: {}".format(last_log))
             event = ({'properties.variables.lastLogContent': {'value': last_log}})
             machine.send_event(event)  # CHECK: This might raise an exception which will not be caught
@@ -777,12 +777,12 @@ class StateMeasuringPaused(State):
             'properties.variables.altitude': {'value': machine.sensor.altitude},
             'properties.variables.temperature': {'value': machine.sensor.temperature}
         })
-        machine.send_event(event,
-                           ubirching=True)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        machine.send_event(event, ubirching=True)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         # now send the state log also
-        event = ({'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}})
-        machine.send_event(
-            event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        last_log = _concat_state_log(machine)
+        if not last_log == "":
+            event = ({'properties.variables.lastLogContent': {'value': last_log}})
+            machine.send_event(event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
         now = time.time()
         if now >= self.enter_timestamp + OVERSHOOT_DETECTION_PAUSE_S:
@@ -816,11 +816,13 @@ class StateInactive(State):
         machine.sensor.poll_sensors()
         event = ({
             'properties.variables.altitude': {'value': machine.sensor.altitude},
-            'properties.variables.temperature': {'value': machine.sensor.temperature},
-            'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}
+            'properties.variables.temperature': {'value': machine.sensor.temperature}
         })
-        machine.send_event(
-            event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        last_log = _concat_state_log(machine)
+        if not last_log == "":
+            event.update({'properties.variables.lastLogContent': {'value': last_log}})
+
+        machine.send_event(event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
         self.new_log_level, self.new_state = machine.get_state_from_backend() # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
