@@ -33,7 +33,7 @@ WAIT_FOR_TUNING_MS = 30000
 WATCHDOG_TIMEOUT_MS = 6 * 60 * 1000
 
 MAX_INACTIVITY_TIME_MS = 60 * 60 * 1000  # min * sec * msec
-FIRST_INTERVAL_INACTIVITY_MS = MAX_INACTIVITY_TIME_MS / 16  # =225000 msec
+FIRST_INTERVAL_INACTIVITY_MS = MAX_INACTIVITY_TIME_MS / 32  # =225000 msec
 EXP_BACKOFF_INACTIVITY = 2
 OVERSHOOT_DETECTION_PAUSE_MS = 60 * 1000  # sec * msec
 
@@ -77,53 +77,39 @@ class StateMachine(object):
             log.exception(str(e))
             self.lastError = str(e)
             self.hard_reset()
-            log.error("I should not get here") # CHECK: maybe be more specific with the message in case this line actually is triggered one day.
+            log.error("hard reset of system failed")
             # self.go_to_state('error')
             pycom_machine.reset()
 
         # set all necessary time values
         self.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
 
-        self.startTime = 0 # CHECK: since the reference point is arbitrary per the micropython docs,  time.ticks_ms() might be safer
+        self.startTime = 0
 
         log.info("\033[0;35m[Core] Initializing magic... \033[0m ✨ ")
         log.info("[Core] Hello, I am %s", ubinascii.hexlify(pycom_machine.unique_id()))
-
-    def speed(self): # CHECK: why is this part of the state machine?
-        """
-        Calculate th maximum absolute speed value from current sensor values,
-        over all axis.
-        :return: the maximum value of the currently measured speed.
-        """
-        if self.sensor.speed_max > g_THRESHOLD:
-            print("SPEED MAX= {}".format(self.sensor.speed_max))
-            return True
-
-        if abs(self.sensor.speed_min) > g_THRESHOLD:
-            print("SPEED MIN= {}".format(self.sensor.speed_min))
-            return True
-
-        return False
 
     def add_state(self, state):
         """
         Add a new state to the state machine
         :param state: new state to add
         """
-        self.states[state.name] = state # CHECK: this allows for overwriting of states (intended?), might need check for 'if not state.name in self.states:... else: error'
+        if not state.name in self.states: # check if state already exists
+            self.states[state.name] = state
+        else:
+            log.error("cannot add state :({}), it already exists".format(state.name))
 
     def go_to_state(self, state_name):
         """
         Go to the state, which is indicated in the state_name
         :param state_name: new state to go to.
         """
-        # CHECK: does this need a check if the state_name exists and/or an exception handler?
-        # right now, an exception would propagate to the caller, which is probably also fine 
+        if not state_name in self.states: # check if state already exists
+            log.error("cannot go to unknown state: ({})".format(state_name))
+            state_name = 'error' # go to error state instead
         if self.state:
-            log.debug('Exiting {}'.format(self.state.name))
             self.state.exit(self)
         self.state = self.states[state_name]
-        log.debug('Entering {}'.format(self.state.name))
         self.state.enter(self)
 
     def update(self):
@@ -149,20 +135,22 @@ class StateMachine(object):
 
 
 ############################
-
-# CHECK: maybe add remark what these are for, as far as i can see this section is print helper functions, right?
 def _formated_time():
+    """Helper function to reformat time to the specific format from below."""
     ct = time.localtime()
     return "{0:04d}-{1:02d}-{2:02d}T{3:02d}:{4:02d}:{5:02d}Z".format(*ct)  # modified to fit the correct format
 
 
 def _concat_state_log(machine):
+    """
+    Helper function to concatenate the state transition log and clear it.
+    :return comma separated state transition log string
+    """
     state_log = ""
     for lines in machine.timeStateLog:
         state_log += lines + ","
     machine.timeStateLog.clear()
-    return state_log
-
+    return state_log.rstrip(",")
 
 ################################################################################
 # States
@@ -180,9 +168,10 @@ class State(object):
     def name(self):
         """
         Name of state for state interaction.
+        This is an abstract property, which has to be implemented in every child class
         :return name string of the state.
         """
-        return '' # CHECK: this must raise a "not implemented" error instead of returning something, as a proper state name is needed for the state machine class to work
+        raise NotImplementedError()
 
     def enter(self, machine):
         """
@@ -190,24 +179,35 @@ class State(object):
         Get the timestamp for entering, so it can be used in all states
         :param machine: state machine, which has the state
         """
+        log.debug('Entering {}'.format(self.name))
         self.enter_timestamp = time.ticks_ms()
         # add the timestamp and state name to a log, for later sending
         machine.timeStateLog.append(_formated_time() + ":" + self.name)
-        pass
-        # CHECK: if we want to ensure that all states are logged properly (avoiding copy paste errors in inheriting classes or forgetting State.enter()),
-        # it might be better to split logging and entering in this base class:
-        # def enter(...):
-        #     log_enter(...)
-        #     do_entry(...)
-        # Only do_entry (probably not the best name, just an example...) is then implemented in inheriting specific state class
-        # and proper logging always ensured via the base class implentation of enter (remember to raise not implemented in this base class for do_entry())
+        self._enter(machine)
+
+    def _enter(self, machine):
+        """
+        Enter a specific state
+        This is an abstract method, which has to be implemented in every child class.
+        :param machine: state machine, which has the state
+        """
+        raise NotImplementedError()
 
     def exit(self, machine):
         """
         Exit a specific state. This is called, when the old state is left.
         :param machine: state machine, which has the state.
         """
-        pass
+        log.debug('Exiting {}'.format(self.name))
+        self._exit(machine)
+
+    def _exit(self, machine):
+        """
+        Enter a specific state
+        This is an abstract method, which has to be implemented in every child class.
+        :param machine: state machine, which has the state
+        """
+        raise NotImplementedError()
 
     def update(self, machine):
         """
@@ -243,13 +243,18 @@ class StateInitSystem(State):
     def name(self):
         return 'initSystem'
 
-    def enter(self, machine):
-        State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+    def _enter(self, machine):
         machine.breath.set_color(LED_TURQUOISE)
+
+    def _exit(self, machine):
+        pass
+
+    def update(self, machine):
+        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
 
         try:
             # reset modem (modem might be in a strange state)
-            log.warning("not coming from sleep, resetting modem") # CHECK: message seems wrong, there is no check for sleep here
+            log.warning("Initializing System, resetting modem")
             reset_modem(machine.lte)
 
             log.info("getting IMSI")
@@ -373,11 +378,6 @@ class StateInitSystem(State):
                 log.exception(str(e))
                 # CHECK: shouldn't this transition to an error state? With the current implementation the system will transition to next state without sending CSR
 
-    def exit(self, machine):
-        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
-
-    def update(self, machine):
-        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         now = time.ticks_ms()
         if now >= self.enter_timestamp + STANDARD_DURATION_MS: # CHECK: this is not overflow/wraparound-safe, as "now" can go back to zero.
                                                                # Should usually be "if (now - back_then) >= wait_duration:" for uint, but additionally the docs say
@@ -405,12 +405,11 @@ class StateConnecting(State):
     def name(self):
         return 'connecting'
 
-    def enter(self, machine): # CHECK: adapt to new base class/specific class enter/exit/update function scheme
-        State.enter(self, machine)
+    def _enter(self, machine): # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         machine.breath.set_color(LED_WHITE)
 
-    def exit(self, machine): # CHECK: adapt to new base class/specific class enter/exit/update function scheme
-        State.exit(self, machine)
+    def _exit(self, machine):
+        pass
 
     def _connect(self, machine):
         """
@@ -435,7 +434,6 @@ class StateConnecting(State):
 
         except Exception as e:
             machine.lastError = str(e)
-            machine.go_to_state('error') # CHECK: it might be cleaner to do the state transition in the update functions only (i.e. move this line to update())
             return False
 
         finally:
@@ -447,6 +445,8 @@ class StateConnecting(State):
         State.update(self, machine)
         if self._connect(machine):
             machine.go_to_state('sendingDiagnostics')
+        else:
+            machine.go_to_state('error')
 
 
 class StateSendingDiagnostics(State):
@@ -461,18 +461,22 @@ class StateSendingDiagnostics(State):
     def name(self):
         return 'sendingDiagnostics'
 
-    def enter(self, machine):
-        global RESET_REASON
-        State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+    def _enter(self, machine):
         machine.breath.set_color(LED_YELLOW)
 
-        # CHECK: unsure if sending might not be better placed in update(), especially because of possible exceptions?
+    def _exit(self, machine):
+        pass
+
+    def update(self, machine):
+        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+
+        global RESET_REASON
         # check the errors in the log and send it
         last_log = self._read_log(2)
-        print("LOG: {}".format(last_log)) # CHECK: move print into if clause? or do we want to print an empty 'LOG:' line?
         if last_log != "":
+            print("LOG: {}".format(last_log))
             event = ({'properties.variables.lastLogContent': {'value': last_log}})
-            _send_event(machine, event) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+            _send_event(machine, event) # CHECK: This might raise an exception which will not be caught
 
         # get the firmware version from OTA
         version = self._get_current_version()
@@ -487,14 +491,8 @@ class StateSendingDiagnostics(State):
                   'properties.variables.firmwareVersion': {'value': version},
                   'properties.variables.resetCause': {'value': RESET_REASON, "sentAt": _formated_time()}})
 
-        _send_event(machine, event) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        _send_event(machine, event) # CHECK: This might raise an exception which will not be caught
 
-    def exit(self, machine):
-        # set the restart timer for filter tuning # CHECK: lost comment or missing code
-        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
-
-    def update(self, machine):
-        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         now = time.ticks_ms()
         if now >= self.enter_timestamp + STANDARD_DURATION_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             machine.go_to_state('waitingForOvershoot')
@@ -526,7 +524,7 @@ class StateSendingDiagnostics(State):
                 lines = reader.readlines() # CHECK: i think we can close the reader after this point (not needed while analyzing lines)
                 for line in reversed(lines):
                     # only take the error messages from the log
-                    if "ERROR" in line[:42]:  # only look at the beginning of the line # CHECK: why '42'?
+                    if "ERROR" in line[:42]:  # only look at the beginning of the line, otherwise the string can appear recursively
                         error_counter += 1
                         if error_counter > num_errors:
                             file_index = BACKUP_COUNT
@@ -546,7 +544,7 @@ class StateSendingDiagnostics(State):
                     lines = reader.readlines() # CHECK: i think we can close the reader after this point (not needed while analyzing lines)
                     for line in reversed(lines):
                         # only take the error messages from the log
-                        if "ERROR" in line[:42]:  # only look at the beginning of the line # CHECK: why '42'?
+                        if "ERROR" in line[:42]:  # only look at the beginning of the line, otherwise the string can appear recursively
                             error_counter += 1
                             if error_counter > num_errors:
                                 file_index = BACKUP_COUNT
@@ -575,16 +573,11 @@ class StateWaitingForOvershoot(State):
     def name(self):
         return 'waitingForOvershoot'
 
-    def enter(self, machine):
-        try:
-            State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
-            machine.breath.set_color(LED_PURPLE)
-        except Exception as e:
-            log.exception(str(e))
-            machine.go_to_state('error') # CHECK: recursive enter()
+    def _enter(self, machine):
+        machine.breath.set_color(LED_PURPLE)
 
-    def exit(self, machine):
-        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+    def _exit(self, machine):
+        pass
 
     def update(self, machine):
         sensor_moved = State.update(self, machine) # CHECK: the movement detection is kind of hidden in update() and seems misplaced, see also the comment in State.update()
@@ -598,10 +591,9 @@ class StateWaitingForOvershoot(State):
             #     machine.speed()
             # print("sensor tuning in with ({})".format(machine.speed()))
 
-            now = time.ticks_ms() # CHECK: kind of redundant
-            if now >= self.enter_timestamp + machine.intervalForInactivityEventMs: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
-                machine.go_to_state('inactive')
-                return
+        if now >= self.enter_timestamp + machine.intervalForInactivityEventMs: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
+            machine.go_to_state('inactive')
+            return
 
 
 class StateMeasuringPaused(State):
@@ -617,15 +609,21 @@ class StateMeasuringPaused(State):
     def name(self):
         return 'measuringPaused'
 
-    def enter(self, machine):
-        State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+    def _enter(self, machine):
         machine.breath.set_color(LED_GREEN)
+
+    def _exit(self, machine):
+        pass
+
+    def update(self, machine):
+        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+
         machine.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
         machine.sensor.poll_sensors()
         event = ({
             'properties.variables.isWorking': {'value': True, 'sentAt': _formated_time()},
             'properties.variables.acceleration': {
-                'value': 1 if machine.sensor.speed_max > abs(machine.sensor.speed_min) else -1}, # CHECK: what should this detect? direction? if yes: unsure if this works with single max/min values
+                'value': 1 if machine.sensor.speed_max > abs(machine.sensor.speed_min) else -1},
             'properties.variables.accelerationMax': {'value': machine.sensor.speed_max},
             'properties.variables.accelerationMin': {'value': machine.sensor.speed_min},
             'properties.variables.altitude': {'value': machine.sensor.altitude},
@@ -633,24 +631,9 @@ class StateMeasuringPaused(State):
         })
         _send_event(machine, event, ubirching=True) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         # now send the state log also
-        event = ({'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}}) # CHECK: if _send_event (on next line) fails, the state log is lost (_concat_state_log clears it immediately)
+        event = ({'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}})
         _send_event(machine, event) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
-    def exit(self, machine):
-        # # reset the speed values for next time
-        # machine.sensor.speed_max[0] = 0.0
-        # machine.sensor.speed_max[1] = 0.0
-        # machine.sensor.speed_max[2] = 0.0
-        # machine.sensor.speed_min[0] = 0.0
-        # machine.sensor.speed_min[1] = 0.0
-        # machine.sensor.speed_min[2] = 0.0
-        #
-        # machine.sensor.accel_max = 0.0
-        # machine.sensor.accel_min = 0.0
-        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
-
-    def update(self, machine):
-        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
         now = time.ticks_ms()
         if now >= self.enter_timestamp + OVERSHOOT_DETECTION_PAUSE_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             machine.go_to_state('waitingForOvershoot')
@@ -672,18 +655,19 @@ class StateInactive(State):
     def name(self):
         return 'inactive'
 
-    def enter(self, machine):
-        State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+    def _enter(self, machine): # CHECK WG this enter does not fit to the general logic anymore
         machine.breath.set_color(LED_BLUE)
 
         if machine.intervalForInactivityEventMs < MAX_INACTIVITY_TIME_MS:
-            machine.intervalForInactivityEventMs *= EXP_BACKOFF_INACTIVITY # CHECK: in the worst case, max inactivity interval might be almost twice as big as MAX_INACTIVITY_TIME_MS. might need additional 'if' for capping
+            machine.intervalForInactivityEventMs *= EXP_BACKOFF_INACTIVITY
+        else:
+            machine.intervalForInactivityEventMs = MAX_INACTIVITY_TIME_MS
 
         machine.sensor.poll_sensors()
         event = ({
             'properties.variables.altitude': {'value': machine.sensor.altitude},
-            'properties.variables.temperature': {'value': machine.sensor.temperature},
-            'properties.variables.lastLogContent': {'value': _concat_state_log(machine)} # CHECK: if _send_event (on next line) fails, the state log is lost (_concat_state_log clears it immediately)
+            'properties.variables.temperature': {'value': machine.sensor.temperature}, # TODO fix lastLogContent,
+            'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}
         })
         _send_event(machine, event)# CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
@@ -691,8 +675,8 @@ class StateInactive(State):
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventMs))
 
-    def exit(self, machine):
-        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+    def _exit(self, machine):
+        pass
 
     def update(self, machine):
         sensor_moved = State.update(self, machine) # CHECK: the movement detection is kind of hidden in update() and seems misplaced, see also the comment in State.update()
@@ -715,9 +699,7 @@ class StateInactive(State):
             machine.go_to_state('bootloader')
             return
 
-        self._adjust_level_state(machine, self.new_log_level, self.new_state) # CHECK: Possible BUG: this *always* sets a new state (either blinking, bootloader, error, or waitingForOvershoot)
-                                                                              # and thus, we will always *immediately* leave the 'inactive' state, making the if cases/transistions above useless
-                                                                              # (unless restart time is already over when entering 'inactive' state)
+        self._adjust_level_state(machine, self.new_log_level, self.new_state)
 
     def _adjust_level_state(self, machine, level, state):
         """
@@ -745,12 +727,10 @@ class StateBlinking(State):
     def name(self):
         return 'blinking'
 
-    def enter(self, machine):
-        State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+    def _enter(self, machine):
         machine.breath.set_blinking()
 
-    def exit(self, machine):
-        State.exit(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+    def _exit(self, machine):
         machine.breath.reset_blinking()
 
     def update(self, machine):
@@ -773,10 +753,14 @@ class StateError(State):
     def name(self):
         return 'error'
 
-    def enter(self, machine):
+    def _enter(self, machine):
+        machine.breath.set_color(LED_RED)
+
+    def _exit(self, machine):
+        raise SystemError("exiting the error state should never happen here")
+
+    def update(self, machine):
         try:  # just build that in, because of recent error, which caused the controller to be BRICKED TODO: check this again
-            State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
-            machine.breath.set_color(LED_RED)
 
             if machine.lastError:
                 log.error("Last error: {}".format(machine.lastError))
@@ -796,14 +780,6 @@ class StateError(State):
             time.sleep(3)
             pycom_machine.deepsleep(1)  # this will wakeup with reset in the main again
 
-    def exit(self, machine):
-        """ This is intentionally left empty, because this point should never be entered"""
-        pass # CHECK: if this should never be entered unless something goes very wrong, it might be better to raise an error instead of silently passing here
-
-    def update(self, machine):
-        """ This is intentionally left empty, because this point should never be entered"""
-        pass # CHECK: if this should never be entered unless something goes very wrong, it might be better to raise an error instead of silently passing here
-
 
 class StateBootloader(State):
     """
@@ -819,9 +795,8 @@ class StateBootloader(State):
     def name(self):
         return 'bootloader'
 
-    def enter(self, machine):
+    def _enter(self, machine):
         try:  # just build tha in, because of recent error, which caused the controller to be BRICKED TODO: check this again
-            State.enter(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
             machine.breath.set_color(LED_RED)
             machine.sim.deinit()
 
@@ -829,9 +804,8 @@ class StateBootloader(State):
             time.sleep(1)
             pycom_machine.reset()
 
-    def exit(self, machine):
-        """ This is intentionally left empty, because this point should never be entered"""
-        pass
+    def _exit(self, machine):
+        raise SystemError("exiting the bootloader state should never happen here")
 
     def update(self, machine):
         """ This is intentionally left empty, because this point should never be entered"""
@@ -852,12 +826,11 @@ def _send_event(machine, event: dict, ubirching: bool = False): # CHECK: maybe m
     print("SENDING")
 
     # make the elevate data package
-    elevate_serialized = serialize_json(event)
     log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
 
     try:
         if ubirching:
-            elevate_serialized = serialize_json(event) # CHECK: redundant: already performed in line 855
+            elevate_serialized = serialize_json(event)
             # unlock SIM
             machine.sim.sim_auth(machine.pin)
 
@@ -962,15 +935,15 @@ def _send_emergency_event(machine, event: dict):# CHECK: maybe move this into ma
     print("SENDING")
 
     # make the elevate data package
-    # CHECK: maybe assign result of json.dumps(event) here and reuse it instead of calling json.dumps(event) twice in this function
-    log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
+    event_string = json.dumps(event)
+    log.debug("Sending Elevate HTTP request body: {}".format(event_string))
 
     try:
         machine.connection.ensure_connection()
         # send data message to data service, with reconnects/modem resets if necessary
         status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
                                                  machine.elevate_api.send_data, machine.uuid,
-                                                 json.dumps(event))
+                                                 event_string)
         log.debug("RESPONSE: {}".format(content))
 
     except Exception as e:
