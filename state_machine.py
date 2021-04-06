@@ -134,6 +134,166 @@ class StateMachine(object):
         time.sleep(1)
         self.sensor.pysense.reset_cmd()
 
+    def send_event(self, event: dict, ubirching: bool = False):  # CHECK: maybe move this into machine? but its a bit unclear if machine class represents 'the state machine' or 'the system'
+        """
+        Send the data to elevate and the UPP to ubirch
+        :param event: name of the event to send
+        :param ubirching: will send anchoring UPPs to ubirch, if set to True
+        :return:
+        """
+        # make the elevate data package
+        log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
+
+        try:
+            if ubirching:
+                elevate_serialized = serialize_json(event)
+                # unlock SIM
+                self.sim.sim_auth(self.pin)
+
+                # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
+                print("++ creating UPP")
+                upp = self.sim.message_chained(self.key_name, elevate_serialized, hash_before_sign=True)
+                print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
+
+                # get UPP backlog from flash and add new UPP
+                upps = get_backlog(UPP_BACKLOG_FILE)
+                upps.append(ubinascii.hexlify(upp).decode())
+
+            # get event backlog from flash and add new event
+            events = get_backlog(EVENT_BACKLOG_FILE)
+            events.append(json.dumps(event))
+
+            # send events
+            self.connection.ensure_connection()
+
+            try:
+                while len(events) > 0:
+                    # send data message to data service, with reconnects/modem resets if necessary
+                    status_code, content = send_backend_data(self.sim, self.lte, self.connection,
+                                                             self.elevate_api.send_data, self.uuid,
+                                                             events[0])
+                    log.debug("RESPONSE: {}".format(content))
+
+                    if not 200 <= status_code < 300:
+                        log.error("BACKEND RESP {}: {}".format(status_code, content))  # TODO check error log content!
+                        write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
+                        if ubirching:
+                            write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
+                        self.connection.disconnect()
+                        return
+                    else:
+                        # event was sent successfully and can be removed from backlog
+                        events.pop(0)
+
+            except Exception:
+                # sending failed, write unsent messages to flash and terminate
+                write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
+                if ubirching:
+                    write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
+                raise
+
+            # send UPPs
+            self.connection.ensure_connection()
+
+            try:
+                if ubirching:
+                    while len(upps) > 0:
+                        # send UPP to the ubirch authentication service to be anchored to the blockchain
+                        status_code, content = send_backend_data(self.sim, self.lte, self.connection,
+                                                                 self.api.send_upp, self.uuid,
+                                                                 ubinascii.unhexlify(upps[0]))
+                        try:
+                            log.debug("NIOMON RESPONSE: ({}) {}".format(status_code,
+                                                                        "" if status_code == 200 else ubinascii.hexlify(
+                                                                            content).decode()))
+                        except Exception:  # this is only excaption handling in case the content can not be decyphered
+                            pass
+                        # communication worked in general, now check server response
+                        if not 200 <= status_code < 300 and not status_code == 409:
+                            log.error("NIOMON RESP {}".format(status_code))
+                        else:
+                            # UPP was sent successfully and can be removed from backlog
+                            upps.pop(0)
+
+                else:
+                    pass
+            except Exception:
+                # sending failed, write unsent messages to flash and terminate
+                raise
+            finally:
+                write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
+                if ubirching:
+                    write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
+
+        except Exception as e:
+            # if too many communications fail, reset the system
+            self.failedBackendCommunications += 1
+            if self.failedBackendCommunications > 3:
+                log.exception(str(e) + "doing RESET")
+                self.go_to_state(
+                    'error')  # CHECK: state transistion in global function (outside of state / state machine), might be better to return success/fail and handle transition in the state machine
+            else:
+                log.exception(str(e))
+
+        finally:
+            self.connection.disconnect()
+            # CHECK: I'm not 100% sure, but it might be possible to move the write_backlog calls from above here as
+            # this 'finally' block should be executed even if there is a return in the code above (will run just before returning from this function)
+            # but might also make code less readable maybe
+
+    def send_emergency_event(self, event: dict):  # CHECK: maybe move this into machine? but its a bit unclear if machine class represents 'the state machine' or 'the system'
+        """
+        # Send an emergency event to elevate
+        :param event: name of the event to send
+        :return:
+        """
+        print("SENDING")
+
+        # make the elevate data package
+        event_string = json.dumps(event)
+        log.debug("Sending Elevate HTTP request body: {}".format(event_string))
+
+        try:
+            self.connection.ensure_connection()
+            # send data message to data service, with reconnects/modem resets if necessary
+            status_code, content = send_backend_data(self.sim, self.lte, self.connection,
+                                                     self.elevate_api.send_data, self.uuid,
+                                                     event_string)
+            log.debug("RESPONSE: {}".format(content))
+
+        except Exception as e:
+            log.exception(str(e))
+
+        finally:
+            self.connection.disconnect()
+
+    def get_state_from_backend(self):
+        """
+        Get the current state and log level from the elevate backend
+        :param machine: state machine, providing the connection
+        :return: log level and new state
+        """
+        level = ""
+        state = ""
+        # CHECK: TODO: document what the backend might reply, e.g. especially if "empty" state information is possible
+
+        # send data message to data service, with reconnects/modem resets if necessary
+        try:
+            self.connection.ensure_connection()
+            status_code, level, state = send_backend_data(self.sim, self.lte, self.connection,
+                                                          self.elevate_api.get_state, self.uuid, '')
+            # communication worked in general, now check server response
+            if not 200 <= status_code < 300:
+                log.error("Elevate backend returned HTTP error code {}".format(status_code))
+        except Exception as e:
+            log.exception(str(e))
+            self.go_to_state('error')  # CHECK: state transistion in global function (outside of state / state machine), might be better to return success/fail (or use exceptions) and handle transition in the state machine
+
+        finally:
+            self.connection.disconnect()
+
+        return level, state
+
 
 ############################
 def _formated_time():
@@ -300,7 +460,7 @@ class StateInitSystem(State):
             event = ({
                 'properties.variables.lastError': {'value': str(e), 'sentAt': _formated_time()}
             })
-            _send_emergency_event(machine, event) # CHECK: if transitions to an error state are implemented for SysInit, it might be better to send the
+            machine.send_emergency_event(event) # CHECK: if transitions to an error state are implemented for SysInit, it might be better to send the
                                                   #  emergency message in the error state (?)
             while True:  # watchdog will get out of here
                 pycom_machine.idle() # CHECK: shouldn't this transition to the error state instead of endlessly looping?
@@ -355,7 +515,7 @@ class StateInitSystem(State):
                     'properties.variables.lastError': {'value': 'PIN is invalid, can\'t continue',
                                                        'sentAt': _formated_time()}
                 })
-                _send_emergency_event(machine, event) # CHECK: if transitions to an error state are implemented for SysInit, it might be better to send the
+                machine.send_emergency_event(event) # CHECK: if transitions to an error state are implemented for SysInit, it might be better to send the
                                                       #  emergency message in the error state (?)
                 # while True:
                 #     machine.wdt.feed()  # avert reset from watchdog   TODO check this, do not want to be stuck here
@@ -481,7 +641,7 @@ class StateSendingDiagnostics(State):
         if last_log != "":
             print("LOG: {}".format(last_log))
             event = ({'properties.variables.lastLogContent': {'value': last_log}})
-            _send_event(machine, event) # CHECK: This might raise an exception which will not be caught
+            machine.send_event(event)  # CHECK: This might raise an exception which will not be caught
 
         # get the firmware version from OTA
         version = self._get_current_version()
@@ -496,7 +656,7 @@ class StateSendingDiagnostics(State):
                   'properties.variables.firmwareVersion': {'value': version},
                   'properties.variables.resetCause': {'value': RESET_REASON, "sentAt": _formated_time()}})
 
-        _send_event(machine, event) # CHECK: This might raise an exception which will not be caught
+        machine.send_event(event)  # CHECK: This might raise an exception which will not be caught
 
         now = time.time()
         if now >= self.enter_timestamp + STANDARD_DURATION_S:
@@ -617,10 +777,12 @@ class StateMeasuringPaused(State):
             'properties.variables.altitude': {'value': machine.sensor.altitude},
             'properties.variables.temperature': {'value': machine.sensor.temperature}
         })
-        _send_event(machine, event, ubirching=True) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        machine.send_event(event,
+                           ubirching=True)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         # now send the state log also
         event = ({'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}})
-        _send_event(machine, event) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        machine.send_event(
+            event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
         now = time.time()
         if now >= self.enter_timestamp + OVERSHOOT_DETECTION_PAUSE_S:
@@ -657,9 +819,10 @@ class StateInactive(State):
             'properties.variables.temperature': {'value': machine.sensor.temperature},
             'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}
         })
-        _send_event(machine, event)# CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        machine.send_event(
+            event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
-        self.new_log_level, self.new_state = _get_state_from_backend(machine) # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        self.new_log_level, self.new_state = machine.get_state_from_backend() # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventS))
 
@@ -756,7 +919,7 @@ class StateError(State):
                     'value': machine.lastError if machine.lastError is not None else "unknown",
                     'sentAt': _formated_time()}
             })
-            _send_emergency_event(machine, event)
+            machine.send_emergency_event(event)
 
             machine.sim.deinit()
             machine.lte.deinit(detach=True, reset=True)
@@ -796,174 +959,6 @@ class StateBootloader(State):
 
 
 ################################################################################
-
-def _send_event(machine, event: dict, ubirching: bool = False): # CHECK: maybe move this into machine? but its a bit unclear if machine class represents 'the state machine' or 'the system'
-    """
-    Send the data to elevate and the UPP to ubirch
-    :param ubirching:
-    :param machine: state machine, which provides the connection and the ubirch protocol
-    :param event: name of the event to send
-    :param current_time: time variable
-    :return:
-    """
-    print("SENDING")
-
-    # make the elevate data package
-    log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
-
-    try:
-        if ubirching:
-            elevate_serialized = serialize_json(event)
-            # unlock SIM
-            machine.sim.sim_auth(machine.pin)
-
-            # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
-            print("++ creating UPP")
-            upp = machine.sim.message_chained(machine.key_name, elevate_serialized, hash_before_sign=True)
-            print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
-
-            # get UPP backlog from flash and add new UPP
-            upps = get_backlog(UPP_BACKLOG_FILE)
-            upps.append(ubinascii.hexlify(upp).decode())
-
-        # get event backlog from flash and add new event
-        events = get_backlog(EVENT_BACKLOG_FILE)
-        events.append(json.dumps(event))
-
-        # send events
-        machine.connection.ensure_connection()
-
-        try:
-            while len(events) > 0:
-                # send data message to data service, with reconnects/modem resets if necessary
-                status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                         machine.elevate_api.send_data, machine.uuid,
-                                                         events[0])
-                log.debug("RESPONSE: {}".format(content))
-
-                if not 200 <= status_code < 300:
-                    log.error("BACKEND RESP {}: {}".format(status_code, content))  # TODO check error log content!
-                    write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                    if ubirching:
-                        write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                    machine.connection.disconnect()
-                    return
-                else:
-                    # event was sent successfully and can be removed from backlog
-                    events.pop(0)
-
-        except Exception:
-            # sending failed, write unsent messages to flash and terminate
-            write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-            if ubirching:
-                write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
-            raise
-
-        # send UPPs
-        machine.connection.ensure_connection()
-
-        try:
-            if ubirching:
-                while len(upps) > 0:
-                    # send UPP to the ubirch authentication service to be anchored to the blockchain
-                    status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                             machine.api.send_upp, machine.uuid,
-                                                             ubinascii.unhexlify(upps[0]))
-                    try:
-                        log.debug("NIOMON RESPONSE: ({}) {}".format(status_code,
-                                                                    "" if status_code == 200 else ubinascii.hexlify(
-                                                                        content).decode()))
-                    except Exception:  # this is only excaption handling in case the content can not be decyphered
-                        pass
-                    # communication worked in general, now check server response
-                    if not 200 <= status_code < 300 and not status_code == 409:
-                        log.error("NIOMON RESP {}".format(status_code))
-                    else:
-                        # UPP was sent successfully and can be removed from backlog
-                        upps.pop(0)
-
-            else:
-                pass
-        except Exception:
-            # sending failed, write unsent messages to flash and terminate
-            raise
-        finally:
-            write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-            if ubirching:
-                write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
-
-    except Exception as e:
-        # if too many communications fail, reset the system
-        machine.failedBackendCommunications += 1
-        if machine.failedBackendCommunications > 3:
-            log.exception(str(e) + "doing RESET")
-            machine.go_to_state('error') # CHECK: state transistion in global function (outside of state / state machine), might be better to return success/fail and handle transition in the state machine
-        else:
-            log.exception(str(e))
-
-    finally:
-        machine.connection.disconnect()
-        # CHECK: I'm not 100% sure, but it might be possible to move the write_backlog calls from above here as
-        # this 'finally' block should be executed even if there is a return in the code above (will run just before returning from this function)
-        # but might also make code less readable maybe
-
-
-def _send_emergency_event(machine, event: dict):# CHECK: maybe move this into machine? but its a bit unclear if machine class represents 'the state machine' or 'the system'
-    """
-    # Send an emergency event to elevate
-    :param machine: state machine, which provides the connection and the ubirch protocol
-    :param event: name of the event to send
-    :return:
-    """
-    print("SENDING")
-
-    # make the elevate data package
-    event_string = json.dumps(event)
-    log.debug("Sending Elevate HTTP request body: {}".format(event_string))
-
-    try:
-        machine.connection.ensure_connection()
-        # send data message to data service, with reconnects/modem resets if necessary
-        status_code, content = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                 machine.elevate_api.send_data, machine.uuid,
-                                                 event_string)
-        log.debug("RESPONSE: {}".format(content))
-
-    except Exception as e:
-        log.exception(str(e))
-
-    finally:
-        machine.connection.disconnect()
-
-
-def _get_state_from_backend(machine):
-    """
-    Get the current state and log level from the elevate backend
-    :param machine: state machine, providing the connection
-    :return: log level and new state
-    """
-    level = ""
-    state = ""
-    # CHECK: TODO: document what the backend might reply, e.g. especially if "empty" state information is possible
-
-    # send data message to data service, with reconnects/modem resets if necessary
-    try:
-        machine.connection.ensure_connection()
-        status_code, level, state = send_backend_data(machine.sim, machine.lte, machine.connection,
-                                                      machine.elevate_api.get_state, machine.uuid, '')
-        # communication worked in general, now check server response
-        if not 200 <= status_code < 300:
-            log.error("Elevate backend returned HTTP error code {}".format(status_code))
-    except Exception as e:
-        log.exception(str(e))
-        machine.go_to_state('error') # CHECK: state transistion in global function (outside of state / state machine), might be better to return success/fail (or use exceptions) and handle transition in the state machine
-
-    finally:
-        machine.connection.disconnect()
-
-    return level, state
-
-
 #         'isWorking'#(Bool) DONE
 #         'lastActivityOn' #(date) todo
 #         'lastLogContent' #(String) DONE for ERRORs
