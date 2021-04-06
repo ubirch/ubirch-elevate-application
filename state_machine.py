@@ -223,10 +223,11 @@ class State(object):
         # CHECK: this is always called, regardless of if the state actually needs to know about movement
         # should probably be located somewhere else
         if machine.sensor.trigger:
-            machine.sensor.calc_speed() # CHECK: there is no real guarantee how often update is executed for each state (blocking operations), since other states
-                                        # depend on the values updated by calc_speed I am unsure if it works as expected when called from here
-                                        # if this needs to run regularly regardless of state, machine Timer module or simnilar callbacks/interrupts might be a solution
-            if machine.speed():
+            # CHECK: there is no real guarantee how often update is executed for each state (blocking operations), since other states
+            # depend on the values updated by calc_speed I am unsure if it works as expected when called from here
+            # if this needs to run regularly regardless of state, machine Timer module or simnilar callbacks/interrupts might be a solution
+            machine.sensor.calc_speed()
+            if machine.sensor.movement():
                 return True
         return False
 
@@ -588,8 +589,8 @@ class StateWaitingForOvershoot(State):
                 machine.go_to_state('measuringPaused')
                 return
             # else:
-            #     machine.speed()
-            # print("sensor tuning in with ({})".format(machine.speed()))
+            #     machine.sensor.movement()
+            # print("sensor tuning in with ({})".format(machine.sensor.movement()))
 
         if now >= self.enter_timestamp + machine.intervalForInactivityEventMs: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             machine.go_to_state('inactive')
@@ -687,8 +688,8 @@ class StateInactive(State):
                 machine.go_to_state('measuringPaused')
                 return
         # else:
-        #     machine.speed()
-        # print("sensor tuning in with ({})".format(machine.speed()))
+        #     machine.sensor.movement()
+        # print("sensor tuning in with ({})".format(machine.sensor.movement()))
 
         if now >= self.enter_timestamp + machine.intervalForInactivityEventMs: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             machine.go_to_state('inactive')

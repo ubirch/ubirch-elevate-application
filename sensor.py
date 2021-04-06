@@ -178,3 +178,19 @@ class MovementSensor(object):
         self.speed_max = max(max(self.speed_filtered_smooth))
 
         return
+
+    def movement(self):
+        """
+        Calculate th maximum absolute speed value from current sensor values,
+        over all axis.
+        :return: the maximum value of the currently measured speed.
+        """
+        if self.speed_max > g_THRESHOLD:
+            print("SPEED MAX= {}".format(self.speed_max))
+            return True
+
+        if abs(self.speed_min) > g_THRESHOLD:
+            print("SPEED MIN= {}".format(self.speed_min))
+            return True
+
+        return False
