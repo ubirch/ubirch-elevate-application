@@ -180,11 +180,15 @@ class State(object):
         Get the timestamp for entering, so it can be used in all states
         :param machine: state machine, which has the state
         """
-        log.debug('Entering {}'.format(self.name))
-        self.enter_timestamp = time.time()
-        # add the timestamp and state name to a log, for later sending
-        machine.timeStateLog.append(_formated_time() + ":" + self.name)
-        self._enter(machine)
+        try:
+            log.debug('Entering {}'.format(self.name))
+            self.enter_timestamp = time.time()
+            # add the timestamp and state name to a log, for later sending
+            machine.timeStateLog.append(_formated_time() + ":" + self.name)
+            self._enter(machine)
+        except Exception as e:
+            log.exception("Enter: {}".format(str(e)))
+            raise e
 
     def _enter(self, machine):
         """
@@ -199,8 +203,12 @@ class State(object):
         Exit a specific state. This is called, when the old state is left.
         :param machine: state machine, which has the state.
         """
-        log.debug('Exiting {}'.format(self.name))
-        self._exit(machine)
+        try:
+            log.debug('Exiting {}'.format(self.name))
+            self._exit(machine)
+        except Exception as e:
+            log.exception("Exit: {}".format(str(e)))
+            raise e
 
     def _exit(self, machine):
         """
@@ -217,20 +225,23 @@ class State(object):
         :param machine: state machine, which has the state.
         :return: True, to indicate, the function was called.
         """
-        movement = False
-        machine.breath.update()
+        try:
+            movement = False
+            machine.breath.update()
 
-        # CHECK: this is always called, regardless of if the state actually needs to know about movement
-        # should probably be located somewhere else
-        if machine.sensor.trigger:
-            # CHECK: there is no real guarantee how often update is executed for each state (blocking operations), since other states
-            # depend on the values updated by calc_speed I am unsure if it works as expected when called from here
-            # if this needs to run regularly regardless of state, machine Timer module or simnilar callbacks/interrupts might be a solution
-            machine.sensor.calc_speed()
-            if machine.sensor.movement():
-                movement = True
-
-        self._update(machine, movement)
+            # CHECK: this is always called, regardless of if the state actually needs to know about movement
+            # should probably be located somewhere else
+            if machine.sensor.trigger:
+                # CHECK: there is no real guarantee how often update is executed for each state (blocking operations), since other states
+                # depend on the values updated by calc_speed I am unsure if it works as expected when called from here
+                # if this needs to run regularly regardless of state, machine Timer module or simnilar callbacks/interrupts might be a solution
+                machine.sensor.calc_speed()
+                if machine.sensor.movement():
+                    movement = True
+            self._update(machine, movement)
+        except Exception as e:
+            log.exception("Update: {}".format(str(e)))
+            raise e
 
     def _update(self, machine, movement):
         """
@@ -505,52 +516,38 @@ class StateSendingDiagnostics(State):
         :return: String of the last errors
         :example: {'t':'1970-01-01T00:00:23Z','l':'ERROR','m':...}
         """
-        BACKUP_COUNT = 4 + 1 # CHECK: why '4', why '+1' ?
         last_log = ""
         error_counter = 0
         file_index = 1
         filename = logging.FILENAME
-        # CHECK: might be nicer to build a list of files to parse by checking for existence in a for loop first (list = mylog.txt, mylog.txt.1, etc) 
-        # and then handle parsing for errors by iterating over that list ('for logfile in all_logfiles_list'), to avoid the repetitive code below i.e.
-        # determine which logfiles exist, then parse them starting with the newest one and break when num_errors is reached
+        # make a list of all log files
+        all_logfiles_list = []
         if filename in os.listdir():
-            with open(filename, 'r') as reader:
-                lines = reader.readlines() # CHECK: i think we can close the reader after this point (not needed while analyzing lines)
-                for line in reversed(lines):
-                    # only take the error messages from the log
-                    if "ERROR" in line[:42]:  # only look at the beginning of the line, otherwise the string can appear recursively
-                        error_counter += 1
-                        if error_counter > num_errors:
-                            file_index = BACKUP_COUNT
-                            break
-                        last_log += (line.rstrip('\n'))
-                        # check if the message was closed with "}", if not, add it to ensure json
-                        if not "}" in line:
-                            last_log += "}," # CHECK: if the last '}' is missing, doesnt this create a bracket imbalance? why would there be a '{' without an '}'?
-                        else:
-                            last_log += ","
-                    else:
-                        pass
-        while file_index < BACKUP_COUNT:
-            if (filename + '.{}'.format(file_index)) in os.listdir():
-                with open((filename + '.{}'.format(file_index)), 'r') as reader:
-                    # print("file {} opened".format(file_index))
-                    lines = reader.readlines() # CHECK: i think we can close the reader after this point (not needed while analyzing lines)
-                    for line in reversed(lines):
-                        # only take the error messages from the log
-                        if "ERROR" in line[:42]:  # only look at the beginning of the line, otherwise the string can appear recursively
-                            error_counter += 1
-                            if error_counter > num_errors:
-                                file_index = BACKUP_COUNT
-                                break
-                            last_log += (line.rstrip('\n'))
-                            if not "}" in line:
-                                last_log += "}," # CHECK: if the last '}' is missing, doesnt this create a bracket imbalance? why would there be a '{' without an '}'?
-                            else:
-                                last_log += ","
-                        else:
-                            pass
+            all_logfiles_list.append(filename)
+        while (filename + '.{}'.format(file_index)) in os.listdir():
+            all_logfiles_list.append(filename + '.{}'.format(file_index))
             file_index += 1
+
+        # iterate over all log files to get the required ERROR messages
+        for logfile in all_logfiles_list:
+            with open(logfile, 'r') as reader:
+                lines = reader.readlines()
+            for line in reversed(lines):
+                # only take the error messages from the log
+                if "ERROR" in line[:42]:  # only look at the beginning of the line, otherwise the string can appear recursively
+                    error_counter += 1
+                    if error_counter > num_errors:
+                        break
+                    last_log += (line.rstrip('\n'))
+                    # check if the message was closed with "}", if not, add it to ensure json
+                    if not "}" in line:
+                        last_log += "},"
+                    else:
+                        last_log += ","
+                else:
+                    pass
+            if error_counter > num_errors:
+                break
         return last_log.rstrip(',')
 
 
@@ -657,8 +654,8 @@ class StateInactive(State):
         machine.sensor.poll_sensors()
         event = ({
             'properties.variables.altitude': {'value': machine.sensor.altitude},
-            'properties.variables.temperature': {'value': machine.sensor.temperature} # TODO fix lastLogContent,
-#            'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}
+            'properties.variables.temperature': {'value': machine.sensor.temperature},
+            'properties.variables.lastLogContent': {'value': _concat_state_log(machine)}
         })
         _send_event(machine, event)# CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
