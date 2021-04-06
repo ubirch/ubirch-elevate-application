@@ -216,6 +216,7 @@ class State(object):
         :param machine: state machine, which has the state.
         :return: True, to indicate, the function was called.
         """
+        movement = False
         # CHECK: maybe for this, the same remark as for enter (forgetting to call State.update()) applies
         # i.e. update() could consist of breath_update() and do_update() or similar. (See enter())
         machine.breath.update()
@@ -228,8 +229,18 @@ class State(object):
             # if this needs to run regularly regardless of state, machine Timer module or simnilar callbacks/interrupts might be a solution
             machine.sensor.calc_speed()
             if machine.sensor.movement():
-                return True
-        return False
+                movement = True
+
+        self._update(machine, movement)
+
+    def _update(self, machine, movement):
+        """
+        Update a specific state.
+        This is an abstract method, which has to be implemented in every child class.
+        :param machine: state machine, which has the state
+        :param movement: boolean telling, if the elevator has moved
+        """
+        raise NotImplementedError()
 
 
 class StateInitSystem(State):
@@ -250,9 +261,7 @@ class StateInitSystem(State):
     def _exit(self, machine):
         pass
 
-    def update(self, machine):
-        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
-
+    def _update(self, machine, movement):
         try:
             # reset modem (modem might be in a strange state)
             log.warning("Initializing System, resetting modem")
@@ -442,8 +451,7 @@ class StateConnecting(State):
 
         return True
 
-    def update(self, machine): # CHECK: adapt to new base class/specific class enter/exit/update function scheme
-        State.update(self, machine)
+    def _update(self, machine, movement):
         if self._connect(machine):
             machine.go_to_state('sendingDiagnostics')
         else:
@@ -468,9 +476,7 @@ class StateSendingDiagnostics(State):
     def _exit(self, machine):
         pass
 
-    def update(self, machine):
-        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
-
+    def _update(self, machine, movement):
         global RESET_REASON
         # check the errors in the log and send it
         last_log = self._read_log(2)
@@ -580,12 +586,11 @@ class StateWaitingForOvershoot(State):
     def _exit(self, machine):
         pass
 
-    def update(self, machine):
-        sensor_moved = State.update(self, machine) # CHECK: the movement detection is kind of hidden in update() and seems misplaced, see also the comment in State.update()
+    def _update(self, machine, movement):
         # wait 30 seconds for filter to tune in
         now = time.ticks_ms()
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS:# CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
-            if sensor_moved:
+            if movement:
                 machine.go_to_state('measuringPaused')
                 return
             # else:
@@ -616,9 +621,7 @@ class StateMeasuringPaused(State):
     def _exit(self, machine):
         pass
 
-    def update(self, machine):
-        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
-
+    def _update(self, machine, movement):
         machine.intervalForInactivityEventMs = FIRST_INTERVAL_INACTIVITY_MS
         machine.sensor.poll_sensors()
         event = ({
@@ -679,12 +682,11 @@ class StateInactive(State):
     def _exit(self, machine):
         pass
 
-    def update(self, machine):
-        sensor_moved = State.update(self, machine) # CHECK: the movement detection is kind of hidden in update() and seems misplaced, see also the comment in State.update()
+    def _update(self, machine, movement):
         # wait for filter to tune in
         now = time.ticks_ms()
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
-            if sensor_moved:
+            if movement:
                 machine.go_to_state('measuringPaused')
                 return
         # else:
@@ -734,8 +736,7 @@ class StateBlinking(State):
     def _exit(self, machine):
         machine.breath.reset_blinking()
 
-    def update(self, machine):
-        State.update(self, machine) # CHECK: adapt to new base class/specific class enter/exit/update function scheme
+    def _update(self, machine, movement):
         now = time.ticks_ms()
         if now >= self.enter_timestamp + BLINKING_DURATION_MS: # CHECK: this is not overflow/wraparound-safe, check StateInitSystem.update() comment for details
             machine.go_to_state('inactive')  # this is neccessary to fetch a new state from backend
@@ -760,9 +761,8 @@ class StateError(State):
     def _exit(self, machine):
         raise SystemError("exiting the error state should never happen here")
 
-    def update(self, machine):
+    def _update(self, machine, movement):
         try:  # just build that in, because of recent error, which caused the controller to be BRICKED TODO: check this again
-
             if machine.lastError:
                 log.error("Last error: {}".format(machine.lastError))
 
@@ -796,7 +796,7 @@ class StateBootloader(State):
     def name(self):
         return 'bootloader'
 
-    def _enter(self, machine):
+    def _enter(self, machine): # CHECK WG: move this to update
         try:  # just build tha in, because of recent error, which caused the controller to be BRICKED TODO: check this again
             machine.breath.set_color(LED_RED)
             machine.sim.deinit()
@@ -808,7 +808,7 @@ class StateBootloader(State):
     def _exit(self, machine):
         raise SystemError("exiting the bootloader state should never happen here")
 
-    def update(self, machine):
+    def _update(self, machine, movement): # CHECK WG: move from enter to update
         """ This is intentionally left empty, because this point should never be entered"""
         pass
 
