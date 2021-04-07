@@ -134,7 +134,7 @@ class StateMachine(object):
         time.sleep(1)
         self.sensor.pysense.reset_cmd()
 
-    def send_event(self, event: dict, ubirching: bool = False):  # CHECK: maybe move this into machine? but its a bit unclear if machine class represents 'the state machine' or 'the system'
+    def send_event(self, event: dict, ubirching: bool = False):
         """
         Send the data to elevate and the UPP to ubirch
         :param event: name of the event to send
@@ -230,8 +230,7 @@ class StateMachine(object):
             self.failedBackendCommunications += 1
             if self.failedBackendCommunications > 3:
                 log.exception(str(e) + "doing RESET")
-                self.go_to_state(
-                    'error')  # CHECK: state transistion in global function (outside of state / state machine), might be better to return success/fail and handle transition in the state machine
+                self.go_to_state('error')  # CHECK: state transistion in global function (outside of state / state machine), might be better to return success/fail and handle transition in the state machine
             else:
                 log.exception(str(e))
 
@@ -241,7 +240,7 @@ class StateMachine(object):
             # this 'finally' block should be executed even if there is a return in the code above (will run just before returning from this function)
             # but might also make code less readable maybe
 
-    def send_emergency_event(self, event: dict):  # CHECK: maybe move this into machine? but its a bit unclear if machine class represents 'the state machine' or 'the system'
+    def send_emergency_event(self, event: dict):
         """
         # Send an emergency event to elevate
         :param event: name of the event to send
