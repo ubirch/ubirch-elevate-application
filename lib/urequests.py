@@ -39,7 +39,9 @@ class Response:
 # storage for ssl sessions, for faster connection
 ssl_stored_sessions = dict({})
 
-def request(method, url, data=None, json=None, headers={}, stream=None, parse_headers=True):
+def request(method, url, data=None, json=None, headers=None, stream=None, parse_headers=True):
+    if headers is None:
+        headers = {}
     global ssl_stored_sessions
     redir_cnt = 1
     if json is not None:
@@ -148,8 +150,6 @@ def request(method, url, data=None, json=None, headers={}, stream=None, parse_he
                     l = l.decode()
                     k, v = l.split(":", 1)
                     resp_d[k] = v.strip()
-                else:
-                    parse_headers(l, resp_d)
         except OSError:
             s.close()
             raise
