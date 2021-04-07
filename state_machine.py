@@ -731,9 +731,6 @@ class StateWaitingForOvershoot(State):
             if movement:
                 machine.go_to_state('measuringPaused')
                 return
-            # else:
-            #     machine.sensor.movement()
-            # print("sensor tuning in with ({})".format(machine.sensor.movement()))
 
         if now >= self.enter_timestamp + machine.intervalForInactivityEventS:
             machine.go_to_state('inactive')
@@ -778,7 +775,7 @@ class StateMeasuringPaused(State):
             machine.send_event(event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
         now = time.time()
-        if now >= self.enter_timestamp + OVERSHOOT_DETECTION_PAUSE_S:
+        if now >= self.enter_timestamp + STANDARD_DURATION_S:
             machine.go_to_state('waitingForOvershoot')
 
 
@@ -826,21 +823,18 @@ class StateInactive(State):
     def _update(self, machine, movement):
         # wait for filter to tune in
         now = time.time()
+        if now >= machine.startTime + RESTART_OFFSET_TIME_S:
+            log.info("its time to restart")
+            machine.go_to_state('bootloader')
+            return
+
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_S:
             if movement:
                 machine.go_to_state('measuringPaused')
                 return
-        # else:
-        #     machine.sensor.movement()
-        # print("sensor tuning in with ({})".format(machine.sensor.movement()))
 
         if now >= self.enter_timestamp + machine.intervalForInactivityEventS:
             machine.go_to_state('inactive')
-            return
-
-        if now >= machine.startTime + RESTART_OFFSET_TIME_S:
-            log.info("its time to restart")
-            machine.go_to_state('bootloader')
             return
 
         self._adjust_level_state(machine, self.new_log_level, self.new_state)
