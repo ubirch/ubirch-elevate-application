@@ -42,11 +42,11 @@ class System():
 class StateMachine():    
     def loop():
         while(True):
-        error = System.send_something()
-        if error:
-            StateMachine.go_to_state('error')
-        else:
-            pass # just continue with the rest of the code
+            error = System.send_something()
+            if error:
+                StateMachine.go_to_state('error')
+            else:
+                pass # just continue with the rest of the code
     
     def go_to_state(self):
         pass # go somewhere
