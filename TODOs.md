@@ -22,3 +22,26 @@ This should be moved one level higher, by `raise Exception`.
 Commands like `machine.go_to_state()` should only be called in the
 `StateMachine`, not the `System` class.
 
+
+### Example
+
+```python
+def send_something():
+    error = False
+    # initialise ubirch SIM protocol
+    log.info("Initializing ubirch SIM protocol")
+    try:
+        machine.sim = ElevateSim(lte=machine.lte, at_debug=machine.debug)
+    except Exception as e:
+        machine.lastError = str(e)
+        error = True #   machine.go_to_state('error')    
+    return error 
+
+def main():
+    while(True):
+    error = send_something()
+    if error:
+        go_to_state('error')
+    else:
+        pass # just continue with the rest of the code
+```
