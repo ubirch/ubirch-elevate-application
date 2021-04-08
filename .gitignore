@@ -6,5 +6,4 @@ venv
 lib/__pycache__
 config.json*
 config_post*
-/pymakr.conf
 /releases
