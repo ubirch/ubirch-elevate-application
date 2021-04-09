@@ -354,3 +354,21 @@ def get_backlog(backlog_file: str) -> list:
             for line in file:
                 backlog.append(line.rstrip("\n"))
     return backlog
+
+
+def formated_time():
+    """Helper function to reformat time to the specific format from below."""
+    ct = time.localtime()
+    return "{0:04d}-{1:02d}-{2:02d}T{3:02d}:{4:02d}:{5:02d}Z".format(*ct)  # modified to fit the correct format
+
+
+def concat_state_log(machine):
+    """
+    Helper function to concatenate the state transition log and clear it.
+    :return comma separated state transition log string
+    """
+    state_log = ""
+    for lines in machine.timeStateLog:
+        state_log += lines + ","
+    machine.timeStateLog.clear()
+    return state_log.rstrip(",")
