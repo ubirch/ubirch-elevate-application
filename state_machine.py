@@ -236,9 +236,7 @@ class StateInitSystem(State):
         except OSError as e:
             log.exception(str(e))
             machine.lastError = str(e)
-            machine.system.hard_reset()
-            log.error("hard reset of system failed")
-            # self.go_to_state('error')
+
             pycom_machine.reset()
 
         now = time.time()
