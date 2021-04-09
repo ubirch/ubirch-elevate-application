@@ -9,6 +9,7 @@ from network import LTE
 
 import logging
 import ubirch
+import system
 from lib.config import *
 from lib.connection import get_connection, NB_IoT
 from lib.elevate_api import ElevateAPI
@@ -55,32 +56,11 @@ class StateMachine(object):
         self.wdt.feed()
         self.state = None
         self.states = {}
-        self.cfg = []
-        self.connection = None
-        self.uuid = {}
-        self.sim = None
-        self.pin = None
-        self.key_name = ""
-        self.api = None
-        self.debug = False
         self.lastError = None
         self.failedBackendCommunications = 0
         self.timeStateLog = []
         self.sensorOverThresholdFlag = False
-
-        # create instances of required objects
-        try:
-            self.sensor = MovementSensor()
-            self.lte = LTE()  # psm_period_value=1, psm_period_unit=LTE.PSM_PERIOD_1H,
-            #  psm_active_value=5, psm_active_unit=LTE.PSM_ACTIVE_1M)
-            self.breath = LedBreath()
-        except OSError as e:
-            log.exception(str(e))
-            self.lastError = str(e)
-            self.hard_reset()
-            log.error("hard reset of system failed")
-            # self.go_to_state('error')
-            pycom_machine.reset()
+        self.system = None
 
         # set all necessary time values
         self.intervalForInactivityEventS = FIRST_INTERVAL_INACTIVITY_S
@@ -127,190 +107,6 @@ class StateMachine(object):
         # CHECK: if there is no current state set (e.g. faulty update() function in some state),
         # this silently returns without errors. Throwing an exception here might be better.
 
-    def hard_reset(self):
-        """
-        Hard-Reset GPy and Modem, by triggering power OFF/ON from Pysense.
-        """
-        time.sleep(1)
-        self.sensor.pysense.reset_cmd()
-
-    def send_event(self, event: dict, ubirching: bool = False):
-        """
-        Send the data to elevate and the UPP to ubirch
-        :param event: name of the event to send
-        :param ubirching: will send anchoring UPPs to ubirch, if set to True
-        :return:
-        """
-        # make the elevate data package
-        log.debug("Sending Elevate HTTP request body: {}".format(json.dumps(event)))
-
-        try:
-            if ubirching:
-                elevate_serialized = serialize_json(event)
-                # unlock SIM
-                self.sim.sim_auth(self.pin)
-
-                # seal the data message (data message will be hashed and inserted into UPP as payload by SIM card)
-                print("++ creating UPP")
-                upp = self.sim.message_chained(self.key_name, elevate_serialized, hash_before_sign=True)
-                print("\tUPP: {}\n".format(ubinascii.hexlify(upp).decode()))
-
-                # get UPP backlog from flash and add new UPP
-                upps = get_backlog(UPP_BACKLOG_FILE)
-                upps.append(ubinascii.hexlify(upp).decode())
-
-            # get event backlog from flash and add new event
-            events = get_backlog(EVENT_BACKLOG_FILE)
-            events.append(json.dumps(event))
-
-            # send events
-            self.connection.ensure_connection()
-
-            try:
-                while len(events) > 0:
-                    # send data message to data service, with reconnects/modem resets if necessary
-                    status_code, content = send_backend_data(self.sim, self.lte, self.connection,
-                                                             self.elevate_api.send_data, self.uuid,
-                                                             events[0])
-                    log.debug("RESPONSE: {}".format(content))
-
-                    if not 200 <= status_code < 300:
-                        log.error("BACKEND RESP {}: {}".format(status_code, content))  # TODO check error log content!
-                        write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                        if ubirching:
-                            write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                        self.connection.disconnect()
-                        return
-                    else:
-                        # event was sent successfully and can be removed from backlog
-                        events.pop(0)
-
-            except Exception:
-                # sending failed, write unsent messages to flash and terminate
-                write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                if ubirching:
-                    write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                raise
-
-            # send UPPs
-            self.connection.ensure_connection()
-
-            try:
-                if ubirching:
-                    while len(upps) > 0:
-                        # send UPP to the ubirch authentication service to be anchored to the blockchain
-                        status_code, content = send_backend_data(self.sim, self.lte, self.connection,
-                                                                 self.api.send_upp, self.uuid,
-                                                                 ubinascii.unhexlify(upps[0]))
-                        try:
-                            log.debug("NIOMON RESPONSE: ({}) {}".format(status_code,
-                                                                        "" if status_code == 200 else ubinascii.hexlify(
-                                                                            content).decode()))
-                        except Exception:  # this is only excaption handling in case the content can not be decyphered
-                            pass
-                        # communication worked in general, now check server response
-                        if not 200 <= status_code < 300 and not status_code == 409:
-                            log.error("NIOMON RESP {}".format(status_code))
-                        else:
-                            # UPP was sent successfully and can be removed from backlog
-                            upps.pop(0)
-
-                else:
-                    pass
-            except Exception:
-                # sending failed, write unsent messages to flash and terminate
-                raise
-            finally:
-                write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                if ubirching:
-                    write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
-
-        except Exception as e:
-            # if too many communications fail, reset the system
-            self.failedBackendCommunications += 1
-            if self.failedBackendCommunications > 3:
-                log.exception(str(e) + "doing RESET")
-                self.go_to_state('error')  # CHECK: state transistion in global function (outside of state / state machine), might be better to return success/fail and handle transition in the state machine
-            else:
-                log.exception(str(e))
-
-        finally:
-            self.connection.disconnect()
-            # CHECK: I'm not 100% sure, but it might be possible to move the write_backlog calls from above here as
-            # this 'finally' block should be executed even if there is a return in the code above (will run just before returning from this function)
-            # but might also make code less readable maybe
-
-    def send_emergency_event(self, event: dict):
-        """
-        # Send an emergency event to elevate
-        :param event: name of the event to send
-        :return:
-        """
-        print("SENDING")
-
-        # make the elevate data package
-        event_string = json.dumps(event)
-        log.debug("Sending Elevate HTTP request body: {}".format(event_string))
-
-        try:
-            self.connection.ensure_connection()
-            # send data message to data service, with reconnects/modem resets if necessary
-            status_code, content = send_backend_data(self.sim, self.lte, self.connection,
-                                                     self.elevate_api.send_data, self.uuid,
-                                                     event_string)
-            log.debug("RESPONSE: {}".format(content))
-
-        except Exception as e:
-            log.exception(str(e))
-
-        finally:
-            self.connection.disconnect()
-
-    def get_state_from_backend(self):
-        """
-        Get the current state and log level from the elevate backend
-        :param machine: state machine, providing the connection
-        :return: log level and new state
-        """
-        level = ""
-        state = ""
-        # CHECK: TODO: document what the backend might reply, e.g. especially if "empty" state information is possible
-
-        # send data message to data service, with reconnects/modem resets if necessary
-        try:
-            self.connection.ensure_connection()
-            status_code, level, state = send_backend_data(self.sim, self.lte, self.connection,
-                                                          self.elevate_api.get_state, self.uuid, '')
-            # communication worked in general, now check server response
-            if not 200 <= status_code < 300:
-                log.error("Elevate backend returned HTTP error code {}".format(status_code))
-        except Exception as e:
-            log.exception(str(e))
-            self.go_to_state('error')  # CHECK: state transistion in global function (outside of state / state machine), might be better to return success/fail (or use exceptions) and handle transition in the state machine
-
-        finally:
-            self.connection.disconnect()
-
-        return level, state
-
-
-############################
-def _formated_time():
-    """Helper function to reformat time to the specific format from below."""
-    ct = time.localtime()
-    return "{0:04d}-{1:02d}-{2:02d}T{3:02d}:{4:02d}:{5:02d}Z".format(*ct)  # modified to fit the correct format
-
-
-def _concat_state_log(machine):
-    """
-    Helper function to concatenate the state transition log and clear it.
-    :return comma separated state transition log string
-    """
-    state_log = ""
-    for lines in machine.timeStateLog:
-        state_log += lines + ","
-    machine.timeStateLog.clear()
-    return state_log.rstrip(",")
 
 ################################################################################
 # States
@@ -342,7 +138,7 @@ class State(object):
             log.debug('Entering {}'.format(self.name))
             self.enter_timestamp = time.time()
             # add the timestamp and state name to a log, for later sending
-            machine.timeStateLog.append(_formated_time() + ":" + self.name)
+            machine.timeStateLog.append(formated_time() + ":" + self.name)
             self._enter(machine)
         except Exception as e:
             log.exception("Enter: {}".format(str(e)))
@@ -385,17 +181,21 @@ class State(object):
         """
         try:
             movement = False
-            machine.breath.update()
 
-            # CHECK: this is always called, regardless of if the state actually needs to know about movement
-            # should probably be located somewhere else
-            if machine.sensor.trigger:
-                # CHECK: there is no real guarantee how often update is executed for each state (blocking operations), since other states
-                # depend on the values updated by calc_speed I am unsure if it works as expected when called from here
-                # if this needs to run regularly regardless of state, machine Timer module or simnilar callbacks/interrupts might be a solution
-                machine.sensor.calc_speed()
-                if machine.sensor.movement():
-                    movement = True
+            # check if the system is already initialised - skip if it is not
+            if machine.system != None:
+                machine.system.led_breath.update()
+
+                # CHECK: this is always called, regardless of if the state actually needs to know about movement
+                # should probably be located somewhere else
+                if machine.system.sensor.trigger:
+                    # CHECK: there is no real guarantee how often update is executed for each state (blocking operations), since other states
+                    # depend on the values updated by calc_speed I am unsure if it works as expected when called from here
+                    # if this needs to run regularly regardless of state, machine Timer module or simnilar callbacks/interrupts might be a solution
+                    machine.system.sensor.calc_speed()
+                    if machine.system.sensor.movement():
+                        movement = True
+
             self._update(machine, movement)
         except Exception as e:
             log.exception("Update: {}".format(str(e)))
@@ -423,135 +223,23 @@ class StateInitSystem(State):
         return 'initSystem'
 
     def _enter(self, machine):
-        machine.breath.set_color(LED_TURQUOISE)
+        # TODO breath not possible here since the system class is not yet initialized
+        #machine.system.led_breath.set_color(LED_TURQUOISE)
+        return
 
     def _exit(self, machine):
         pass
 
     def _update(self, machine, movement):
         try:
-            # reset modem (modem might be in a strange state)
-            log.warning("Initializing System, resetting modem")
-            reset_modem(machine.lte)
-
-            log.info("getting IMSI")
-            imsi = get_imsi(machine.lte)
-            log.info("IMSI: " + imsi)
-        except Exception as e:
-            log.exception("failed setting up modem {}".format(str(e)))
-            while True:  # watchdog will get out of this
-                pycom_machine.idle() # CHECK: shouldn't this transition to the error state instead of endlessly looping?
-
-        # load configuration, blocks in case of failure
-        log.info("loading config")
-        try:
-            machine.cfg = load_config()
-
-            machine.debug = machine.cfg['debug']  # set debug level
-            machine.connection = get_connection(machine.lte,
-                                                machine.cfg)  # initialize connection object depending on config
-            machine.api = ubirch.API(machine.cfg)  # set up API for backend communication
-        except Exception as e:
-            log.exception("failed loading configuration {}".format(str(e)))
-            # generate and try to send an emergency event
-            event = ({
-                'properties.variables.lastError': {'value': str(e), 'sentAt': _formated_time()}
-            })
-            machine.send_emergency_event(event) # CHECK: if transitions to an error state are implemented for SysInit, it might be better to send the
-                                                  #  emergency message in the error state (?)
-            while True:  # watchdog will get out of here
-                pycom_machine.idle() # CHECK: shouldn't this transition to the error state instead of endlessly looping?
-
-        # create an instance of the elevate API, which needs the configuration
-        machine.elevate_api = ElevateAPI(machine.cfg)
-
-        # configure connection timeouts according to config
-        if isinstance(machine.connection, NB_IoT):
-            machine.connection.setattachtimeout(machine.cfg["nbiot_extended_attach_timeout"])
-            machine.connection.setconnecttimeout(machine.cfg["nbiot_extended_connect_timeout"])
-
-        # get PIN from flash, or bootstrap from backend and then save PIN to flash
-        pin_file = imsi + ".bin"
-        machine.pin = get_pin_from_flash(pin_file, imsi)
-        if machine.pin is None:
-            try:
-                machine.connection.ensure_connection()
-            except Exception as e:
-                machine.lastError = str(e)
-                machine.go_to_state('error')
-                return
-
-            try:
-                machine.pin = bootstrap(imsi, machine.api)
-                with open(pin_file, "wb") as f:
-                    f.write(machine.pin.encode())
-            except Exception as e:
-                machine.lastError = str(e)
-                machine.go_to_state('error')
-                return
-
-        # initialise ubirch SIM protocol
-        log.info("Initializing ubirch SIM protocol")
-        try:
-            machine.sim = ElevateSim(lte=machine.lte, at_debug=machine.debug)
-        except Exception as e:
+            machine.system = system.System()
+        except OSError as e:
+            log.exception(str(e))
             machine.lastError = str(e)
-            machine.go_to_state('error')
-            return
-
-        # unlock SIM
-        try:
-            machine.sim.sim_auth(machine.pin)
-        except Exception as e:
-            # if PIN is invalid, there is nothing we can do -> block
-            if isinstance(e, ValueError):
-                machine.breath.set_color(COLOR_SIM_FAIL)
-                log.critical("PIN is invalid, can't continue")
-                # create an emergency event and try to send it
-                event = ({
-                    'properties.variables.lastError': {'value': 'PIN is invalid, can\'t continue',
-                                                       'sentAt': _formated_time()}
-                })
-                machine.send_emergency_event(event) # CHECK: if transitions to an error state are implemented for SysInit, it might be better to send the
-                                                      #  emergency message in the error state (?)
-                # while True:
-                #     machine.wdt.feed()  # avert reset from watchdog   TODO check this, do not want to be stuck here
-                #     machine.breath.update()
-                time.sleep(180)
-                machine.hard_reset() # CHECK: if the PIN is invalid, it will probably still be on next boot, and thus the SIM will become unusable after 3 resets
-            else:
-                machine.lastError = str(e)
-                machine.go_to_state('error')
-                return
-
-        # get UUID from SIM
-        machine.key_name = "ukey"
-        try:
-            machine.uuid = machine.sim.get_uuid(machine.key_name)
-        except Exception as e:
-            machine.lastError = str(e)
-            machine.go_to_state('error')
-            return
-            # log.exception(str(e))
-        log.info("UUID: %s", str(machine.uuid))
-
-        # send a X.509 Certificate Signing Request for the public key to the ubirch identity service (once)
-        csr_file = "csr_{}_{}.der".format(machine.uuid, machine.api.env)
-        if csr_file not in os.listdir():
-            try:
-                machine.connection.ensure_connection()
-            except Exception as e:
-                log.exception(str(e))
-                # CHECK: shouldn't this transition to an error state? With the current implementation the system will transition to next state without sending CSR
-
-            try:
-                csr = submit_csr(machine.key_name, machine.cfg["CSR_country"], machine.cfg["CSR_organization"],
-                                 machine.sim, machine.api)
-                with open(csr_file, "wb") as f:
-                    f.write(csr)
-            except Exception as e:
-                log.exception(str(e))
-                # CHECK: shouldn't this transition to an error state? With the current implementation the system will transition to next state without sending CSR
+            machine.system.hard_reset()
+            log.error("hard reset of system failed")
+            # self.go_to_state('error')
+            pycom_machine.reset()
 
         now = time.time()
         if now >= self.enter_timestamp + STANDARD_DURATION_S:
@@ -570,7 +258,7 @@ class StateConnecting(State):
         return 'connecting'
 
     def _enter(self, machine):
-        machine.breath.set_color(LED_WHITE)
+        machine.system.led_breath.set_color(LED_WHITE)
 
     def _exit(self, machine):
         pass
@@ -582,7 +270,7 @@ class StateConnecting(State):
         :return: True, if connection established, otherwise false
         """
         try:
-            machine.connection.ensure_connection()
+            machine.system.connection.ensure_connection()
             enable_time_sync()
             log.info("\twaiting for time sync")
             wait_for_sync(print_dots=True)
@@ -601,7 +289,7 @@ class StateConnecting(State):
             return False
 
         finally:
-            machine.connection.disconnect()
+            machine.system.connection.disconnect()
 
         return True
 
@@ -624,7 +312,7 @@ class StateSendingDiagnostics(State):
         return 'sendingDiagnostics'
 
     def _enter(self, machine):
-        machine.breath.set_color(LED_YELLOW)
+        machine.system.led_breath.set_color(LED_YELLOW)
 
     def _exit(self, machine):
         pass
@@ -636,22 +324,22 @@ class StateSendingDiagnostics(State):
         if not last_log == "":
             print("LOG: {}".format(last_log))
             event = ({'properties.variables.lastLogContent': {'value': last_log}})
-            machine.send_event(event)  # CHECK: This might raise an exception which will not be caught
+            machine.system.send_event(event)  # CHECK: This might raise an exception which will not be caught
 
         # get the firmware version from OTA
         version = self._get_current_version()
 
         # get the signal quality and network status
-        rssi, ber = machine.sim.get_signal_quality(machine.debug)
-        cops = machine.sim.get_network_stats(machine.debug)  # TODO this is not yet decyphered
+        rssi, ber = machine.system.sim.get_signal_quality(machine.system.debug)
+        cops = machine.system.sim.get_network_stats(machine.system.debug)  # TODO this is not yet decyphered
         event = ({'properties.variables.cellSignalPower': {'value': rssi},
                   'properties.variables.cellSignalQuality': {'value': ber},
                   'properties.variables.cellTechnology': {'value': cops},
                   'properties.variables.hardwareVersion': {'value': '0.9.0'},
                   'properties.variables.firmwareVersion': {'value': version},
-                  'properties.variables.resetCause': {'value': RESET_REASON, "sentAt": _formated_time()}})
+                  'properties.variables.resetCause': {'value': RESET_REASON, "sentAt": formated_time()}})
 
-        machine.send_event(event)  # CHECK: This might raise an exception which will not be caught
+        machine.system.send_event(event)  # CHECK: This might raise an exception which will not be caught
 
         now = time.time()
         if now >= self.enter_timestamp + STANDARD_DURATION_S:
@@ -719,7 +407,7 @@ class StateWaitingForOvershoot(State):
         return 'waitingForOvershoot'
 
     def _enter(self, machine):
-        machine.breath.set_color(LED_PURPLE)
+        machine.system.led_breath.set_color(LED_PURPLE)
 
     def _exit(self, machine):
         pass
@@ -750,29 +438,29 @@ class StateMeasuringPaused(State):
         return 'measuringPaused'
 
     def _enter(self, machine):
-        machine.breath.set_color(LED_GREEN)
+        machine.system.led_breath.set_color(LED_GREEN)
 
     def _exit(self, machine):
         pass
 
     def _update(self, machine, movement):
         machine.intervalForInactivityEventS = FIRST_INTERVAL_INACTIVITY_S
-        machine.sensor.poll_sensors()
+        machine.system.sensor.poll_sensors()
         event = ({
-            'properties.variables.isWorking': {'value': True, 'sentAt': _formated_time()},
+            'properties.variables.isWorking': {'value': True, 'sentAt': formated_time()},
             'properties.variables.acceleration': {
-                'value': 1 if machine.sensor.speed_max > abs(machine.sensor.speed_min) else -1},
-            'properties.variables.accelerationMax': {'value': machine.sensor.speed_max},
-            'properties.variables.accelerationMin': {'value': machine.sensor.speed_min},
-            'properties.variables.altitude': {'value': machine.sensor.altitude},
-            'properties.variables.temperature': {'value': machine.sensor.temperature}
+                'value': 1 if machine.system.sensor.speed_max > abs(machine.system.sensor.speed_min) else -1},
+            'properties.variables.accelerationMax': {'value': machine.system.sensor.speed_max},
+            'properties.variables.accelerationMin': {'value': machine.system.sensor.speed_min},
+            'properties.variables.altitude': {'value': machine.system.sensor.altitude},
+            'properties.variables.temperature': {'value': machine.system.sensor.temperature}
         })
-        machine.send_event(event, ubirching=True)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        machine.system.send_event(event, ubirching=True)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         # now send the state log also
-        last_log = _concat_state_log(machine)
+        last_log = concat_state_log(machine)
         if not last_log == "":
             event = ({'properties.variables.lastLogContent': {'value': last_log}})
-            machine.send_event(event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+            machine.system.send_event(event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
         now = time.time()
         if now >= self.enter_timestamp + STANDARD_DURATION_S:
@@ -795,23 +483,23 @@ class StateInactive(State):
         return 'inactive'
 
     def _enter(self, machine):
-        machine.breath.set_color(LED_BLUE)
+        machine.system.led_breath.set_color(LED_BLUE)
 
         if machine.intervalForInactivityEventS < MAX_INACTIVITY_TIME_S:
             machine.intervalForInactivityEventS *= EXP_BACKOFF_INACTIVITY
         else:
             machine.intervalForInactivityEventS = MAX_INACTIVITY_TIME_S
 
-        machine.sensor.poll_sensors()
+        machine.system.sensor.poll_sensors()
         event = ({
-            'properties.variables.altitude': {'value': machine.sensor.altitude},
-            'properties.variables.temperature': {'value': machine.sensor.temperature}
+            'properties.variables.altitude': {'value': machine.system.sensor.altitude},
+            'properties.variables.temperature': {'value': machine.system.sensor.temperature}
         })
-        last_log = _concat_state_log(machine)
+        last_log = concat_state_log(machine)
         if not last_log == "":
             event.update({'properties.variables.lastLogContent': {'value': last_log}})
 
-        machine.send_event(event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        machine.system.send_event(event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
         self.new_log_level, self.new_state = machine.get_state_from_backend() # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
@@ -865,10 +553,10 @@ class StateBlinking(State):
         return 'blinking'
 
     def _enter(self, machine):
-        machine.breath.set_blinking()
+        machine.system.led_breath.set_blinking()
 
     def _exit(self, machine):
-        machine.breath.reset_blinking()
+        machine.system.led_breath.reset_blinking()
 
     def _update(self, machine, movement):
         now = time.time()
@@ -889,7 +577,8 @@ class StateError(State):
         return 'error'
 
     def _enter(self, machine):
-        machine.breath.set_color(LED_RED)
+        if machine.system != None and machine.system.led_breath != None:
+            machine.system.led_breath.set_color(LED_RED)
 
     def _exit(self, machine):
         raise SystemError("exiting the error state should never happen here")
@@ -903,12 +592,12 @@ class StateError(State):
             event = ({
                 'properties.variables.lastError': {
                     'value': machine.lastError if machine.lastError is not None else "unknown",
-                    'sentAt': _formated_time()}
+                    'sentAt': formated_time()}
             })
-            machine.send_emergency_event(event)
+            machine.system.send_emergency_event(event)
 
-            machine.sim.deinit()
-            machine.lte.deinit(detach=True, reset=True)
+            machine.system.sim.deinit()
+            machine.system.lte.deinit(detach=True, reset=True)
 
         finally:
             time.sleep(3)
@@ -929,14 +618,14 @@ class StateBootloader(State):
         return 'bootloader'
 
     def _enter(self, machine):
-        machine.breath.set_color(LED_WHITE_BRIGHT)
+        machine.system.breath.set_color(LED_WHITE_BRIGHT)
 
     def _exit(self, machine):
         raise SystemError("exiting the bootloader state should never happen here")
 
     def _update(self, machine, movement):
         try:  # just build tha in, because of recent error, which caused the controller to hang
-            machine.sim.deinit()
+            machine.system.sim.deinit()
 
         finally:
             time.sleep(1)
