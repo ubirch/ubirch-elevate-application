@@ -135,7 +135,7 @@ def bootstrap(imsi: str, api: ubirch.API) -> str:
         if len(pin) != 4: raise ValueError("len = {}".format(len(pin)))
         int(pin)  # throws ValueError if pin has invalid syntax for integer with base 10
     except ValueError as e:
-        raise Exception("bootstrapping returned invalid PIN: ".format(e))
+        raise Exception("bootstrapping returned invalid PIN: {}".format(e))
 
     return pin
 
@@ -226,7 +226,7 @@ def get_upp_payload(upp: bytes) -> bytes:
         raise Exception("!! can't get payload from {} (not a UPP)".format(hexlify(upp).decode()))
 
     if upp[payload_start_idx - 2] != 0xC4:
-        raise Exception("unexpected payload type: %X".format(upp[payload_start_idx - 2]))
+        raise Exception("unexpected payload type: {}".format(upp[payload_start_idx - 2]))
 
     payload_len = upp[payload_start_idx - 1]
     return upp[payload_start_idx:payload_start_idx + payload_len]
