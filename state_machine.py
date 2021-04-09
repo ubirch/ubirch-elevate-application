@@ -180,7 +180,7 @@ class State(object):
         :return: True, to indicate, the function was called.
         """
         try:
-            movement = False
+            # movement = False
 
             # check if the system is already initialised - skip if it is not
             if machine.system != None:
@@ -188,20 +188,20 @@ class State(object):
 
                 # CHECK: this is always called, regardless of if the state actually needs to know about movement
                 # should probably be located somewhere else
-                if machine.system.sensor.trigger:
-                    # CHECK: there is no real guarantee how often update is executed for each state (blocking operations), since other states
-                    # depend on the values updated by calc_speed I am unsure if it works as expected when called from here
-                    # if this needs to run regularly regardless of state, machine Timer module or simnilar callbacks/interrupts might be a solution
-                    machine.system.sensor.calc_speed()
-                    if machine.system.sensor.movement():
-                        movement = True
+                # if machine.system.sensor.trigger:
+                #     # CHECK: there is no real guarantee how often update is executed for each state (blocking operations), since other states
+                #     # depend on the values updated by calc_speed I am unsure if it works as expected when called from here
+                #     # if this needs to run regularly regardless of state, machine Timer module or simnilar callbacks/interrupts might be a solution
+                #     machine.system.sensor.calc_speed()
+                #     if machine.system.sensor.movement():
+                #         movement = True
 
-            self._update(machine, movement)
+            self._update(machine)
         except Exception as e:
             log.exception("Update: {}".format(str(e)))
             raise e
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         """
         Update a specific state.
         This is an abstract method, which has to be implemented in every child class.
@@ -230,7 +230,7 @@ class StateInitSystem(State):
     def _exit(self, machine):
         pass
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         try:
             machine.system = system.System()
         except OSError as e:
@@ -291,7 +291,7 @@ class StateConnecting(State):
 
         return True
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         if self._connect(machine):
             machine.go_to_state('sendingDiagnostics')
         else:
@@ -315,7 +315,7 @@ class StateSendingDiagnostics(State):
     def _exit(self, machine):
         pass
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         global RESET_REASON
         # check the errors in the log and send it
         last_log = self._read_log(2)
@@ -410,11 +410,11 @@ class StateWaitingForOvershoot(State):
     def _exit(self, machine):
         pass
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         # wait 30 seconds for filter to tune in
         now = time.time()
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_S:
-            if movement:
+            if machine.sensor.overshoot: # movement:
                 machine.go_to_state('measuringPaused')
                 return
 
@@ -441,7 +441,7 @@ class StateMeasuringPaused(State):
     def _exit(self, machine):
         pass
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         machine.intervalForInactivityEventS = FIRST_INTERVAL_INACTIVITY_S
         machine.system.sensor.poll_sensors()
         event = ({
@@ -506,7 +506,7 @@ class StateInactive(State):
     def _exit(self, machine):
         pass
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         # wait for filter to tune in
         now = time.time()
         if now >= machine.startTime + RESTART_OFFSET_TIME_S:
@@ -515,7 +515,7 @@ class StateInactive(State):
             return
 
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_S:
-            if movement:
+            if machine.sensor.overshoot: # movement:
                 machine.go_to_state('measuringPaused')
                 return
 
@@ -556,7 +556,7 @@ class StateBlinking(State):
     def _exit(self, machine):
         machine.system.led_breath.reset_blinking()
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         now = time.time()
         if now >= self.enter_timestamp + BLINKING_DURATION_S:
             machine.go_to_state('inactive')  # this is neccessary to fetch a new state from backend
@@ -581,7 +581,7 @@ class StateError(State):
     def _exit(self, machine):
         raise SystemError("exiting the error state should never happen here")
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         try:  # just build that in, because of recent error, which caused the controller to be BRICKED TODO: check this again
             if machine.lastError:
                 log.error("Last error: {}".format(machine.lastError))
@@ -621,7 +621,7 @@ class StateBootloader(State):
     def _exit(self, machine):
         raise SystemError("exiting the bootloader state should never happen here")
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         try:  # just build tha in, because of recent error, which caused the controller to hang
             machine.system.sim.deinit()
 

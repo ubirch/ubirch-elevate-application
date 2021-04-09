@@ -1,9 +1,13 @@
 import pyboard
 from pyboard.LIS2HH12 import FULL_SCALE_2G, ODR_100_HZ
+import _thread
 
 from sensor_config import *
 
+_thread.stack_size(16384)
+
 # TODO, simplify the filtering and data
+
 
 class MovementSensor(object):
 
@@ -22,8 +26,6 @@ class MovementSensor(object):
         self.temperature = 0.0
         self.trigger = False        # todo rename this variable to indicate, what happens # CHECK: better name might be unprocessed_data_available ?
         self.overshoot = False
-        self.last_print_ms = 0
-        self.last_start_ms = 0
 
         self.globals_init()
 
@@ -59,9 +61,11 @@ class MovementSensor(object):
         self.pysense.accelerometer.restart_fifo()
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb) # CHECK: re-enabling the interrupt here will overwrite data in accel_xyz
                                                                                           # if the fifo is full again (~0.32s) before calc_speed is called
-        self.trigger = True
+        # self.trigger = True
         # print("*",end="")
         # print("X: {} Y: {} Z: {}".format(self.accel_xyz[0][0], self.accel_xyz[0][1], self.accel_xyz[0][2]))
+
+        _thread.start_new_thread(self.sensor_filtering, ())
 
     def globals_init(self):
         for i in range(32):
@@ -148,12 +152,18 @@ class MovementSensor(object):
         over all axis.
         :return: the maximum value of the currently measured speed.
         """
+        self.overshoot = False
         if self.speed_max > g_THRESHOLD:
-            print("SPEED MAX= {}".format(self.speed_max))
-            return True
-
+            # print("(+)", end="")# SPEED MAX= {}".format(self.speed_max))
+            # return True
+            self.overshoot = True
         if abs(self.speed_min) > g_THRESHOLD:
-            print("SPEED MIN= {}".format(self.speed_min))
-            return True
+            # print("(-)", end="")#"SPEED MIN= {}".format(self.speed_min))
+            # return True
+            self.overshoot = True
+        # return False
+        return
 
-        return False
+    def sensor_filtering(self):
+        self.calc_speed()
+        self.movement()
