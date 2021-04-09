@@ -499,7 +499,7 @@ class StateInactive(State):
 
         machine.system.send_event(event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
 
-        self.new_log_level, self.new_state = machine.get_state_from_backend() # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        self.new_log_level, self.new_state = machine.system.get_state_from_backend() # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventS))
 
