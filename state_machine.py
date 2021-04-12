@@ -413,6 +413,11 @@ class StateWaitingForOvershoot(State):
     def _update(self, machine):
         # wait 30 seconds for filter to tune in
         now = time.time()
+        if now >= machine.startTime + RESTART_OFFSET_TIME_S:
+            log.info("its time to restart")
+            machine.go_to_state('bootloader')
+            return
+
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_S:
             if machine.sensor.overshoot: # movement:
                 machine.go_to_state('measuringPaused')
@@ -421,7 +426,6 @@ class StateWaitingForOvershoot(State):
         if now >= self.enter_timestamp + machine.intervalForInactivityEventS:
             machine.go_to_state('inactive')
             return
-
 
 class StateMeasuringPaused(State):
     """
@@ -488,6 +492,11 @@ class StateInactive(State):
         else:
             machine.intervalForInactivityEventS = MAX_INACTIVITY_TIME_S
 
+    def _exit(self, machine):
+        pass
+
+    def _update(self, machine):
+
         machine.system.sensor.poll_sensors()
         event = ({
             'properties.variables.altitude': {'value': machine.system.sensor.altitude},
@@ -502,26 +511,6 @@ class StateInactive(State):
         self.new_log_level, self.new_state = machine.system.get_state_from_backend() # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventS))
-
-    def _exit(self, machine):
-        pass
-
-    def _update(self, machine):
-        # wait for filter to tune in
-        now = time.time()
-        if now >= machine.startTime + RESTART_OFFSET_TIME_S:
-            log.info("its time to restart")
-            machine.go_to_state('bootloader')
-            return
-
-        if now >= self.enter_timestamp + WAIT_FOR_TUNING_S:
-            if machine.sensor.overshoot: # movement:
-                machine.go_to_state('measuringPaused')
-                return
-
-        if now >= self.enter_timestamp + machine.intervalForInactivityEventS:
-            machine.go_to_state('inactive')
-            return
 
         self._adjust_level_state(machine, self.new_log_level, self.new_state)
 
