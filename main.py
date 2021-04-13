@@ -87,9 +87,12 @@ class Main:
                 finally:
                     pass
                 time.sleep(10)
-                # hard reset everything
-                self.root_controller.hard_reset()
-                machine.reset()
+
+                # check if the system (-> pysense) is initialised and try to reset
+                if self.root_controller.system != None and self.root_controller.system.sensor != None:
+                    self.root_controller.system.hard_reset()
+                else:
+                    machine.reset()
 
 
 main = Main()

@@ -135,7 +135,7 @@ def bootstrap(imsi: str, api: ubirch.API) -> str:
         if len(pin) != 4: raise ValueError("len = {}".format(len(pin)))
         int(pin)  # throws ValueError if pin has invalid syntax for integer with base 10
     except ValueError as e:
-        raise Exception("bootstrapping returned invalid PIN: ".format(e))
+        raise Exception("bootstrapping returned invalid PIN: {}".format(e))
 
     return pin
 
@@ -226,7 +226,7 @@ def get_upp_payload(upp: bytes) -> bytes:
         raise Exception("!! can't get payload from {} (not a UPP)".format(hexlify(upp).decode()))
 
     if upp[payload_start_idx - 2] != 0xC4:
-        raise Exception("unexpected payload type: %X".format(upp[payload_start_idx - 2]))
+        raise Exception("unexpected payload type: {}".format(upp[payload_start_idx - 2]))
 
     payload_len = upp[payload_start_idx - 1]
     return upp[payload_start_idx:payload_start_idx + payload_len]
@@ -354,3 +354,21 @@ def get_backlog(backlog_file: str) -> list:
             for line in file:
                 backlog.append(line.rstrip("\n"))
     return backlog
+
+
+def formated_time():
+    """Helper function to reformat time to the specific format from below."""
+    ct = time.localtime()
+    return "{0:04d}-{1:02d}-{2:02d}T{3:02d}:{4:02d}:{5:02d}Z".format(*ct)  # modified to fit the correct format
+
+
+def concat_state_log(machine):
+    """
+    Helper function to concatenate the state transition log and clear it.
+    :return comma separated state transition log string
+    """
+    state_log = ""
+    for lines in machine.timeStateLog:
+        state_log += lines + ","
+    machine.timeStateLog.clear()
+    return state_log.rstrip(",")
