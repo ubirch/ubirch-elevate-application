@@ -4,10 +4,9 @@ import _thread
 
 from sensor_config import *
 
-_thread.stack_size(16384)
+_thread.stack_size(8192)
 
 # TODO, simplify the filtering and data
-
 
 class MovementSensor(object):
 
@@ -24,7 +23,6 @@ class MovementSensor(object):
         self.speed_min = 0.0
         self.altitude = 0.0
         self.temperature = 0.0
-        self.trigger = False        # todo rename this variable to indicate, what happens # CHECK: better name might be unprocessed_data_available ?
         self.overshoot = False
 
         self.globals_init()
@@ -43,6 +41,10 @@ class MovementSensor(object):
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb)
         print("int enabled")
 
+        # The Filtering is happening in a thread, concurrent to the rest of the code.
+        self.threadLock = _thread.allocate_lock()
+        _thread.start_new_thread(self.sensor_filtering_thread, ())
+
     def poll_sensors(self):
         self.altitude = self.pysense.altimeter.altitude()
         self.temperature = self.pysense.humidity.temperature()
@@ -60,12 +62,10 @@ class MovementSensor(object):
 
         self.pysense.accelerometer.restart_fifo()
         self.pysense.accelerometer.enable_fifo_interrupt(self.accelerometer_interrupt_cb) # CHECK: re-enabling the interrupt here will overwrite data in accel_xyz
-                                                                                          # if the fifo is full again (~0.32s) before calc_speed is called
-        # self.trigger = True
-        # print("*",end="")
-        # print("X: {} Y: {} Z: {}".format(self.accel_xyz[0][0], self.accel_xyz[0][1], self.accel_xyz[0][2]))
 
-        _thread.start_new_thread(self.sensor_filtering, ())
+        # release the threadLock, so that the filtering thread can process the data.
+        if self.threadLock.locked():
+            self.threadLock.release()
 
     def globals_init(self):
         for i in range(32):
@@ -90,7 +90,6 @@ class MovementSensor(object):
     # calculate the speed from the given acceleration values
     def calc_speed(self):
 
-        self.trigger = False
         ACCELERATION_FILTER1_ALPHA = 0.0137 /3
         ACCELERATION_FILTER2_ALPHA = 0.0137 *3
         SPEED_FILTER1_ALPHA = 0.0137 /3
@@ -154,16 +153,19 @@ class MovementSensor(object):
         """
         self.overshoot = False
         if self.speed_max > g_THRESHOLD:
-            # print("(+)", end="")# SPEED MAX= {}".format(self.speed_max))
-            # return True
             self.overshoot = True
         if abs(self.speed_min) > g_THRESHOLD:
-            # print("(-)", end="")#"SPEED MIN= {}".format(self.speed_min))
-            # return True
             self.overshoot = True
-        # return False
         return
 
-    def sensor_filtering(self):
-        self.calc_speed()
-        self.movement()
+    def sensor_filtering_thread(self):
+        """
+        Filter the raw sensor data in a thread.
+        The while True loop is necessary to keep this thread alive.
+        The thread will wait for the treadLock and then process the data.
+        """
+        while True:
+            self.threadLock.acquire() # wait here, until threadLock is released.
+            self.calc_speed()
+            self.movement()
+
