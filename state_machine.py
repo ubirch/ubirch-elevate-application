@@ -419,7 +419,7 @@ class StateWaitingForOvershoot(State):
             return
 
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_S:
-            if machine.sensor.overshoot: # movement:
+            if machine.system.sensor.overshoot: # movement:
                 machine.go_to_state('measuringPaused')
                 return
 
@@ -679,12 +679,12 @@ def _reset_cause_switcher(reset_cause: int):
     :return: translated state for state_machine
     """
     switcher = {
-        machine.PWRON_RESET: 'Power On',
-        machine.HARD_RESET: 'Hard',
-        machine.WDT_RESET: 'Watchdog',
-        machine.DEEPSLEEP_RESET: 'Deepsleep',
-        machine.SOFT_RESET: 'Soft',
-        machine.BROWN_OUT_RESET: 'Brown Out'
+        pycom_machine.PWRON_RESET: 'Power On',
+        pycom_machine.HARD_RESET: 'Hard',
+        pycom_machine.WDT_RESET: 'Watchdog',
+        pycom_machine.DEEPSLEEP_RESET: 'Deepsleep',
+        pycom_machine.SOFT_RESET: 'Soft',
+        pycom_machine.BROWN_OUT_RESET: 'Brown Out'
     }
     return switcher.get(reset_cause, 'Unknown')
 
