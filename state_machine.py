@@ -419,7 +419,7 @@ class StateWaitingForOvershoot(State):
             return
 
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_S:
-            if machine.system.sensor.overshoot: # movement:
+            if machine.system.get_movement(): # movement:
                 machine.go_to_state('measuringPaused')
                 return
 
@@ -447,7 +447,7 @@ class StateMeasuringPaused(State):
 
     def _update(self, machine):
         machine.intervalForInactivityEventS = FIRST_INTERVAL_INACTIVITY_S
-        machine.system.sensor.poll_sensors()
+        machine.system.poll_sensors()
         event = ({
             'properties.variables.isWorking': {'value': True, 'sentAt': formated_time()},
             'properties.variables.acceleration': {

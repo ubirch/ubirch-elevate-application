@@ -2,6 +2,7 @@ import logging
 import machine
 import ubinascii
 from network import LTE
+import ujson as json
 
 from lib.helpers import *
 from lib.config import *
@@ -201,11 +202,24 @@ class System:
 
     self.sensor.pysense.reset_cmd() # TODO raise error when reaching code after this call?
 
-  def send_event(self, event: dict, ubirching: bool = False) -> bool:
+  def get_movement(self):
+    """
+    Getter for the movement/overshoot of the filtered sensor data.
+    :return: bool overshoot flag, which is set, if filtered data is beyond the threshold.
+    """
+    return self.sensor.overshoot
+
+  def poll_sensors(self):
+    """ Poll the current temperature and altitude sensor values. """
+    self.sensor.poll_sensors()
+
+
+  def send_event(self, event: dict, ubirching: bool = False, debug: bool = True) -> bool:
     """
     Send the data to eevate and the UPP to uBirch
     :param event: name of the event to send
     :param ubirching: enable/disable sending of UPPs to uBirch
+    :param debug: for extra debugging outputs of messages
     """
 
     try:
@@ -234,6 +248,9 @@ class System:
 
       try:
         while len(events) > 0:
+          if debug:
+            log.debug("Sending event: {}".format(events[0]))
+
           # send data message to data service, with reconnects/modem resets if necessary
           status_code, content = send_backend_data(self.sim, self.lte, self.connection,
                                                   self.elevate_api.send_data, self.uBirch_uuid,
