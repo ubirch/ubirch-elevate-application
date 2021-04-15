@@ -335,7 +335,7 @@ def write_backlog(unsent_msgs: list, backlog_file: str, max_len: int) -> None:
         return
 
     # do not let backlog grow too big
-    if len(unsent_msgs) > max_len:  # CHECK: this assumes that unsent_msgs is always at most 1 message larger than max_len. Maybe need to remove more than 1 message?
+    while len(unsent_msgs) > max_len:
         unsent_msgs.pop(0)  # throw away the oldest message
 
     # store unsent messages
@@ -383,7 +383,6 @@ def state_switcher(state: str):
     :param state: new state given from the backend
     :return: translated state for state_machine
     """
-    # CHECK: TODO: document what the backend might reply, e.g. especially if "empty" state information is possible
     switcher = {
         'installation': 'waitingForOvershoot',
         'blinking': 'blinking',
@@ -392,7 +391,7 @@ def state_switcher(state: str):
         'custom2': 'waitingForOvershoot',
         'custom3': 'bootloader'
     }
-    return switcher.get(state, 'error')
+    return switcher.get(state, 'error') # default returns error
 
 
 def reset_cause_switcher(reset_cause: int):
