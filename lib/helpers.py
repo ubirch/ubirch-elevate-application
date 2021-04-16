@@ -2,8 +2,8 @@ import math
 import uos as os
 import utime as time
 from uuid import UUID
-# import sys # todo remove me
 
+import logging
 import machine
 import pycom
 import ubirch
@@ -335,8 +335,8 @@ def write_backlog(unsent_msgs: list, backlog_file: str, max_len: int) -> None:
         return
 
     # do not let backlog grow too big
-    if len(unsent_msgs) > max_len: # CHECK: this assumes that unsent_msgs is always at most 1 message larger than max_len. Maybe need to remove more than 1 message?
-        unsent_msgs.pop(0) # throw away the oldest message
+    while len(unsent_msgs) > max_len:
+        unsent_msgs.pop(0)  # throw away the oldest message
 
     # store unsent messages
     with open(backlog_file, 'w') as file:
@@ -362,13 +362,50 @@ def formated_time():
     return "{0:04d}-{1:02d}-{2:02d}T{3:02d}:{4:02d}:{5:02d}Z".format(*ct)  # modified to fit the correct format
 
 
-def concat_state_log(machine):
+def translate_backend_log_level(log_level: str):
     """
-    Helper function to concatenate the state transition log and clear it.
-    :return comma separated state transition log string
+    Translate different logging levels from backend into actual logging levels.
+    :param log_level: logging level from backend
+    :return: translated logging level for logger
     """
-    state_log = ""
-    for lines in machine.timeStateLog:
-        state_log += lines + ","
-    machine.timeStateLog.clear()
-    return state_log.rstrip(",")
+    switcher = {
+        'error': logging.ERROR,
+        'warning': logging.WARNING,
+        'info': logging.INFO,
+        'debug': logging.DEBUG
+    }
+    return switcher.get(log_level, logging.INFO)
+
+
+def translate_backend_state_name(state: str):
+    """
+    Translate state-machine state from backend into actual state name.
+    :param state: new state given from the backend
+    :return: translated state for state_machine
+    """
+    switcher = {
+        'installation': 'waitingForOvershoot',
+        'blinking': 'blinking',
+        'sensing': 'waitingForOvershoot',
+        'custom1': 'waitingForOvershoot',
+        'custom2': 'waitingForOvershoot',
+        'custom3': 'bootloader'
+    }
+    return switcher.get(state, 'error') # default returns error
+
+
+def translate_reset_cause(reset_cause: int):
+    """
+    Translate reset cause into readable string.
+    :param reset_cause: from machine
+    :return: translated reset cause string
+    """
+    switcher = {
+        machine.PWRON_RESET: 'Power On',
+        machine.HARD_RESET: 'Hard',
+        machine.WDT_RESET: 'Watchdog',
+        machine.DEEPSLEEP_RESET: 'Deepsleep',
+        machine.SOFT_RESET: 'Soft',
+        machine.BROWN_OUT_RESET: 'Brown Out'
+    }
+    return switcher.get(reset_cause, 'Unknown')

@@ -3,22 +3,13 @@ from: https://learn.adafruit.com/circuitpython-101-state-machines?view=all#code
 """
 import machine as pycom_machine
 import ubinascii
-import ujson as json
 import uos as os
-from network import LTE
 
 import logging
-import ubirch
 import system
-from lib.config import *
-from lib.connection import get_connection, NB_IoT
-from lib.elevate_api import ElevateAPI
-from lib.elevate_sim import ElevateSim
 from lib.helpers import *
-from lib.modem import get_imsi
 from lib.realtimeclock import enable_time_sync, wait_for_sync, board_time_valid, NTP_SERVER_BACKUP
-from sensor import MovementSensor
-from sensor_config import *
+
 
 # backlog constants
 EVENT_BACKLOG_FILE = "event_backlog.txt"
@@ -39,11 +30,15 @@ FIRST_INTERVAL_INACTIVITY_S = MAX_INACTIVITY_TIME_S / 16  # =225 sec
 EXP_BACKOFF_INACTIVITY = 2
 OVERSHOOT_DETECTION_PAUSE_S = 60  # sec
 
-RESTART_OFFSET_TIME_S = 24 * 60 * 60 + (int.from_bytes(os.urandom(2), "big") % 0x0FFF) # define restart time = 1 day + (0 .. 4095) seconds
-print("RESTART IN: {} s".format(RESTART_OFFSET_TIME_S))
+RESTART_OFFSET_TIME_S = 24 * 60 * 60 + (
+            int.from_bytes(os.urandom(2), "big") % 0x0FFF)  # define restart time = 1 day + (0 .. 4095) seconds
 
+# setup the logging
 log = logging.getLogger()
-SENSOR_CYCLE_COUNTER = 10
+log.info("RESTART IN: {} s".format(RESTART_OFFSET_TIME_S))
+
+# get the reason for reset in readable form
+RESET_REASON = translate_reset_cause(pycom_machine.reset_cause())
 
 
 ################################################################################
@@ -75,7 +70,7 @@ class StateMachine(object):
         Add a new state to the state machine
         :param state: new state to add
         """
-        if not state.name in self.states: # check if state already exists
+        if not state.name in self.states:  # check if state already exists
             self.states[state.name] = state
         else:
             log.error("cannot add state :({}), it already exists".format(state.name))
@@ -85,9 +80,9 @@ class StateMachine(object):
         Go to the state, which is indicated in the state_name
         :param state_name: new state to go to.
         """
-        if not state_name in self.states: # check if state already exists
+        if not state_name in self.states:  # check if state already exists
             log.error("cannot go to unknown state: ({})".format(state_name))
-            state_name = 'error' # go to error state instead
+            state_name = 'error'  # go to error state instead
         if self.state:
             self.state.exit(self)
         self.state = self.states[state_name]
@@ -103,9 +98,21 @@ class StateMachine(object):
                 self.state.update(self)
             except Exception as e:
                 log.exception('Uncaught exception while processing state %s: %s', self.state, str(e))
-                self.go_to_state('error')
-        # CHECK: if there is no current state set (e.g. faulty update() function in some state),
-        # this silently returns without errors. Throwing an exception here might be better.
+                if 'error' in self.states:
+                    self.go_to_state('error')
+                else:
+                    raise Exception("Faulty state {}".format(repr(e)))
+
+    def concat_state_log(self):
+        """
+        Helper function to concatenate the state transition log and clear it.
+        :return comma separated state transition log string
+        """
+        state_log = ""
+        for lines in self.timeStateLog:
+            state_log += lines + ","
+        self.timeStateLog.clear()
+        return state_log.rstrip(",")
 
 
 ################################################################################
@@ -115,6 +122,7 @@ class State(object):
     """
     Abstract Parent State Class.
     """
+
     def __init__(self):
         self.enter_timestamp = 0
         pass
@@ -180,28 +188,16 @@ class State(object):
         :return: True, to indicate, the function was called.
         """
         try:
-            movement = False
-
             # check if the system is already initialised - skip if it is not
-            if machine.system != None:
+            if machine.system is not None:
                 machine.system.led_breath.update()
 
-                # CHECK: this is always called, regardless of if the state actually needs to know about movement
-                # should probably be located somewhere else
-                if machine.system.sensor.trigger:
-                    # CHECK: there is no real guarantee how often update is executed for each state (blocking operations), since other states
-                    # depend on the values updated by calc_speed I am unsure if it works as expected when called from here
-                    # if this needs to run regularly regardless of state, machine Timer module or simnilar callbacks/interrupts might be a solution
-                    machine.system.sensor.calc_speed()
-                    if machine.system.sensor.movement():
-                        movement = True
-
-            self._update(machine, movement)
+            self._update(machine)
         except Exception as e:
             log.exception("Update: {}".format(str(e)))
             raise e
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         """
         Update a specific state.
         This is an abstract method, which has to be implemented in every child class.
@@ -215,6 +211,7 @@ class StateInitSystem(State):
     """
     Initialize the System.
     """
+
     def __init__(self):
         super().__init__()
 
@@ -224,13 +221,13 @@ class StateInitSystem(State):
 
     def _enter(self, machine):
         # TODO breath not possible here since the system class is not yet initialized
-        #machine.system.led_breath.set_color(LED_TURQUOISE)
+        # machine.system.led_breath.set_color(LED_TURQUOISE)
         return
 
     def _exit(self, machine):
         pass
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         try:
             machine.system = system.System()
         except OSError as e:
@@ -248,6 +245,7 @@ class StateConnecting(State):
     """
     Connecting State to connect to network.
     """
+
     def __init__(self):
         super().__init__()
 
@@ -272,7 +270,6 @@ class StateConnecting(State):
             enable_time_sync()
             log.info("\twaiting for time sync")
             wait_for_sync(print_dots=True)
-            # print("RTC SYC = {}".format(time.time()))
             if not board_time_valid():
                 enable_time_sync(server=NTP_SERVER_BACKUP)
                 log.info("\twaiting for backup time sync")
@@ -291,7 +288,7 @@ class StateConnecting(State):
 
         return True
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         if self._connect(machine):
             machine.go_to_state('sendingDiagnostics')
         else:
@@ -302,6 +299,7 @@ class StateSendingDiagnostics(State):
     """
     Sending Version Diagnostics to the backend.
     """
+
     def __init__(self):
         super().__init__()
 
@@ -315,14 +313,14 @@ class StateSendingDiagnostics(State):
     def _exit(self, machine):
         pass
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         global RESET_REASON
         # check the errors in the log and send it
         last_log = self._read_log(2)
         if not last_log == "":
             print("LOG: {}".format(last_log))
             event = ({'properties.variables.lastLogContent': {'value': last_log}})
-            machine.system.send_event(event)  # CHECK: This might raise an exception which will not be caught
+            machine.system.send_event(event)
 
         # get the firmware version from OTA
         version = self._get_current_version()
@@ -337,7 +335,7 @@ class StateSendingDiagnostics(State):
                   'properties.variables.firmwareVersion': {'value': version},
                   'properties.variables.resetCause': {'value': RESET_REASON, "sentAt": formated_time()}})
 
-        machine.system.send_event(event)  # CHECK: This might raise an exception which will not be caught
+        machine.system.send_event(event)
 
         now = time.time()
         if now >= self.enter_timestamp + STANDARD_DURATION_S:
@@ -375,7 +373,8 @@ class StateSendingDiagnostics(State):
                 lines = reader.readlines()
             for line in reversed(lines):
                 # only take the error messages from the log
-                if "ERROR" in line[:42]:  # only look at the beginning of the line, otherwise the string can appear recursively
+                if "ERROR" in line[
+                              :42]:  # only look at the beginning of the line, otherwise the string can appear recursively
                     error_counter += 1
                     if error_counter > num_errors:
                         break
@@ -397,6 +396,7 @@ class StateWaitingForOvershoot(State):
     Wait here for acceleration to overshoot the threshold,
     or until waiting time was exceeded.
     """
+
     def __init__(self):
         super().__init__()
 
@@ -410,11 +410,16 @@ class StateWaitingForOvershoot(State):
     def _exit(self, machine):
         pass
 
-    def _update(self, machine, movement):
-        # wait 30 seconds for filter to tune in
+    def _update(self, machine):
         now = time.time()
+        if now >= machine.startTime + RESTART_OFFSET_TIME_S:
+            log.info("its time to restart")
+            machine.go_to_state('bootloader')
+            return
+
+        # wait 30 seconds for filter to tune in
         if now >= self.enter_timestamp + WAIT_FOR_TUNING_S:
-            if movement:
+            if machine.system.get_movement():  # movement:
                 machine.go_to_state('measuringPaused')
                 return
 
@@ -428,6 +433,7 @@ class StateMeasuringPaused(State):
     this state is entered, when the threshold of activity was reached.
     Here the activity is transmitted to the backends
     """
+
     def __init__(self):
         super().__init__()
 
@@ -441,9 +447,9 @@ class StateMeasuringPaused(State):
     def _exit(self, machine):
         pass
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         machine.intervalForInactivityEventS = FIRST_INTERVAL_INACTIVITY_S
-        machine.system.sensor.poll_sensors()
+        machine.system.poll_sensors()
         event = ({
             'properties.variables.isWorking': {'value': True, 'sentAt': formated_time()},
             'properties.variables.acceleration': {
@@ -453,12 +459,12 @@ class StateMeasuringPaused(State):
             'properties.variables.altitude': {'value': machine.system.sensor.altitude},
             'properties.variables.temperature': {'value': machine.system.sensor.temperature}
         })
-        machine.system.send_event(event, ubirching=True)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        machine.system.send_event(event, ubirching=True)
         # now send the state log also
-        last_log = concat_state_log(machine)
+        last_log = machine.concat_state_log()
         if not last_log == "":
             event = ({'properties.variables.lastLogContent': {'value': last_log}})
-            machine.system.send_event(event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+            machine.system.send_event(event)
 
         now = time.time()
         if now >= self.enter_timestamp + STANDARD_DURATION_S:
@@ -471,6 +477,7 @@ class StateInactive(State):
     at entering, the current state is get from the backend
     and the waiting interval is increased
     """
+
     def __init__(self):
         super().__init__()
         self.new_log_level = ""
@@ -488,40 +495,25 @@ class StateInactive(State):
         else:
             machine.intervalForInactivityEventS = MAX_INACTIVITY_TIME_S
 
+    def _exit(self, machine):
+        pass
+
+    def _update(self, machine):
+
         machine.system.sensor.poll_sensors()
         event = ({
             'properties.variables.altitude': {'value': machine.system.sensor.altitude},
             'properties.variables.temperature': {'value': machine.system.sensor.temperature}
         })
-        last_log = concat_state_log(machine)
+        last_log = machine.concat_state_log()
         if not last_log == "":
             event.update({'properties.variables.lastLogContent': {'value': last_log}})
 
-        machine.system.send_event(event)  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        machine.system.send_event(event)
 
-        self.new_log_level, self.new_state = machine.system.get_state_from_backend() # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
+        self.new_log_level, self.new_state = machine.system.get_state_from_backend()  # CHECK: This might raise an exception which will not be caught, also contains state transitions (recursive enter())
         log.info("New log level: ({}), new backend state:({})".format(self.new_log_level, self.new_state))
         log.debug("Increased interval for inactivity events to {}".format(machine.intervalForInactivityEventS))
-
-    def _exit(self, machine):
-        pass
-
-    def _update(self, machine, movement):
-        # wait for filter to tune in
-        now = time.time()
-        if now >= machine.startTime + RESTART_OFFSET_TIME_S:
-            log.info("its time to restart")
-            machine.go_to_state('bootloader')
-            return
-
-        if now >= self.enter_timestamp + WAIT_FOR_TUNING_S:
-            if movement:
-                machine.go_to_state('measuringPaused')
-                return
-
-        if now >= self.enter_timestamp + machine.intervalForInactivityEventS:
-            machine.go_to_state('inactive')
-            return
 
         self._adjust_level_state(machine, self.new_log_level, self.new_state)
 
@@ -532,8 +524,8 @@ class StateInactive(State):
         :param level: new logging level to adjust
         :param state: new sensor state to adjust
         """
-        log.setLevel(_log_switcher(level))
-        machine.go_to_state(_state_switcher(state))
+        log.setLevel(translate_backend_log_level(level))
+        machine.go_to_state(translate_backend_state_name(state))
 
 
 class StateBlinking(State):
@@ -543,6 +535,7 @@ class StateBlinking(State):
     sensors in the field.
     After some time, the state switches back to inactive.
     """
+
     def __init__(self):
         super().__init__()
 
@@ -556,10 +549,10 @@ class StateBlinking(State):
     def _exit(self, machine):
         machine.system.led_breath.reset_blinking()
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         now = time.time()
         if now >= self.enter_timestamp + BLINKING_DURATION_S:
-            machine.go_to_state('inactive')  # this is neccessary to fetch a new state from backend
+            machine.go_to_state('inactive')  # this is necessary to fetch a new state from backend
 
 
 class StateError(State):
@@ -567,6 +560,7 @@ class StateError(State):
     Error State, which is entered, whenever a critical error occurs.
     This state should end with a reset of the complete system
     """
+
     def __init__(self):
         super().__init__()
 
@@ -575,13 +569,13 @@ class StateError(State):
         return 'error'
 
     def _enter(self, machine):
-        if machine.system != None and machine.system.led_breath != None:
+        if machine.system is not None and machine.system.led_breath is not None:
             machine.system.led_breath.set_color(LED_RED)
 
     def _exit(self, machine):
         raise SystemError("exiting the error state should never happen here")
 
-    def _update(self, machine, movement):
+    def _update(self, machine):
         try:  # just build that in, because of recent error, which caused the controller to be BRICKED TODO: check this again
             if machine.lastError:
                 log.error("Last error: {}".format(machine.lastError))
@@ -608,6 +602,7 @@ class StateBootloader(State):
     This state has the purpose to shutdown the system and reset the machine
     to try an OTA (Over The Air Update)
     """
+
     def __init__(self):
         super().__init__()
 
@@ -621,14 +616,13 @@ class StateBootloader(State):
     def _exit(self, machine):
         raise SystemError("exiting the bootloader state should never happen here")
 
-    def _update(self, machine, movement):
-        try:  # just build tha in, because of recent error, which caused the controller to hang
+    def _update(self, machine):
+        try:  # just build that in, because of recent error, which caused the controller to hang
             machine.system.sim.deinit()
 
         finally:
             time.sleep(1)
             pycom_machine.reset()
-
 
 ################################################################################
 #         'isWorking'#(Bool) DONE
@@ -649,56 +643,3 @@ class StateBootloader(State):
 #         'usedStorage'# (Number) todo
 #         'lastError' # (string) DONE in case of emergency
 #         'resetCause' # (string) DONE
-
-def _log_switcher(log_level: str):
-    """
-    Logging level switcher for handling different logging levels from backend.
-    :param log_level: ne logging level from backend
-    :return: translated logging level for logger
-    """
-    switcher = {
-        'error': logging.ERROR,
-        'warning': logging.WARNING,
-        'info': logging.INFO,
-        'debug': logging.DEBUG
-    }
-    return switcher.get(log_level, logging.INFO)
-
-
-def _state_switcher(state: str):
-    """
-    State recognition switcher for handling state changes from backend.
-    :param state: new state given from the backend
-    :return: translated state for state_machine
-    """
-    # CHECK: TODO: document what the backend might reply, e.g. especially if "empty" state information is possible
-    switcher = {
-        'installation': 'waitingForOvershoot',
-        'blinking': 'blinking',
-        'sensing': 'waitingForOvershoot',
-        'custom1': 'waitingForOvershoot',
-        'custom2': 'waitingForOvershoot',
-        'custom3': 'bootloader'
-    }
-    return switcher.get(state, 'error')
-
-
-def _reset_cause_switcher(reset_cause: int):
-    """
-    Reset cause switcher for translating the reset cause into readable string.
-    :param state: new state given from the backend
-    :return: translated state for state_machine
-    """
-    switcher = {
-        machine.PWRON_RESET: 'Power On',
-        machine.HARD_RESET: 'Hard',
-        machine.WDT_RESET: 'Watchdog',
-        machine.DEEPSLEEP_RESET: 'Deepsleep',
-        machine.SOFT_RESET: 'Soft',
-        machine.BROWN_OUT_RESET: 'Brown Out'
-    }
-    return switcher.get(reset_cause, 'Unknown')
-
-
-# todo find a good place for these functions
-RESET_REASON = _reset_cause_switcher(pycom_machine.reset_cause())
