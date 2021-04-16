@@ -453,11 +453,11 @@ class StateMeasuringPaused(State):
         event = ({
             'properties.variables.isWorking': {'value': True, 'sentAt': formated_time()},
             'properties.variables.acceleration': {
-                'value': 1 if machine.system.sensor.speed_max > abs(machine.system.sensor.speed_min) else -1},
-            'properties.variables.accelerationMax': {'value': machine.system.sensor.speed_max},
-            'properties.variables.accelerationMin': {'value': machine.system.sensor.speed_min},
-            'properties.variables.altitude': {'value': machine.system.sensor.altitude},
-            'properties.variables.temperature': {'value': machine.system.sensor.temperature}
+                'value': 1 if machine.system.get_speed_max() > abs(machine.system.get_speed_min()) else -1},
+            'properties.variables.accelerationMax': {'value': machine.system.get_speed_max()},
+            'properties.variables.accelerationMin': {'value': machine.system.get_speed_min()},
+            'properties.variables.altitude': {'value': machine.system.get_altitude()},
+            'properties.variables.temperature': {'value': machine.system.get_temperature()}
         })
         machine.system.send_event(event, ubirching=True)
         # now send the state log also
@@ -500,10 +500,10 @@ class StateInactive(State):
 
     def _update(self, machine):
 
-        machine.system.sensor.poll_sensors()
+        machine.system.poll_sensors()
         event = ({
-            'properties.variables.altitude': {'value': machine.system.sensor.altitude},
-            'properties.variables.temperature': {'value': machine.system.sensor.temperature}
+            'properties.variables.altitude': {'value': machine.system.get_altitude()},
+            'properties.variables.temperature': {'value': machine.system.get_temperature()}
         })
         last_log = machine.concat_state_log()
         if not last_log == "":
