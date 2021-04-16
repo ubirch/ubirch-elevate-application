@@ -221,6 +221,22 @@ class System:
         """ Poll the current temperature and altitude sensor values. """
         self.sensor.poll_sensors()
 
+    def get_temperature(self):
+        """ Get the stored temperature from the sensor. """
+        return self.sensor.temperature
+
+    def get_altitude(self):
+        """ Get stored altitude value from sensor. """
+        return self.sensor.altitude
+
+    def get_speed_max(self):
+        """ Get the current maximum speed from the filtered sensor. """
+        return self.sensor.speed_max
+
+    def get_speed_min(self):
+        """ Get the current minimum speed from the filtered sensor. """
+        return self.sensor.speed_min
+
     def send_event(self, event: dict, ubirching: bool = False, debug: bool = True) -> bool:
         """
         Send the data to eevate and the UPP to uBirch
