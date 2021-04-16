@@ -38,7 +38,7 @@ log = logging.getLogger()
 log.info("RESTART IN: {} s".format(RESTART_OFFSET_TIME_S))
 
 # get the reason for reset in readable form
-RESET_REASON = reset_cause_switcher(pycom_machine.reset_cause())
+RESET_REASON = translate_reset_cause(pycom_machine.reset_cause())
 
 
 ################################################################################
@@ -524,8 +524,8 @@ class StateInactive(State):
         :param level: new logging level to adjust
         :param state: new sensor state to adjust
         """
-        log.setLevel(log_switcher(level))
-        machine.go_to_state(state_switcher(state))
+        log.setLevel(translate_backend_log_level(level))
+        machine.go_to_state(translate_backend_state_name(state))
 
 
 class StateBlinking(State):

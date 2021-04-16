@@ -362,10 +362,10 @@ def formated_time():
     return "{0:04d}-{1:02d}-{2:02d}T{3:02d}:{4:02d}:{5:02d}Z".format(*ct)  # modified to fit the correct format
 
 
-def log_switcher(log_level: str):
+def translate_backend_log_level(log_level: str):
     """
-    Logging level switcher for handling different logging levels from backend.
-    :param log_level: ne logging level from backend
+    Translate different logging levels from backend into actual logging levels.
+    :param log_level: logging level from backend
     :return: translated logging level for logger
     """
     switcher = {
@@ -377,9 +377,9 @@ def log_switcher(log_level: str):
     return switcher.get(log_level, logging.INFO)
 
 
-def state_switcher(state: str):
+def translate_backend_state_name(state: str):
     """
-    State recognition switcher for handling state changes from backend.
+    Translate state-machine state from backend into actual state name.
     :param state: new state given from the backend
     :return: translated state for state_machine
     """
@@ -394,9 +394,9 @@ def state_switcher(state: str):
     return switcher.get(state, 'error') # default returns error
 
 
-def reset_cause_switcher(reset_cause: int):
+def translate_reset_cause(reset_cause: int):
     """
-    Reset cause switcher for translating the reset cause into readable string.
+    Translate reset cause into readable string.
     :param reset_cause: from machine
     :return: translated reset cause string
     """
