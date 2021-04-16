@@ -576,7 +576,7 @@ class StateError(State):
         raise SystemError("exiting the error state should never happen here")
 
     def _update(self, machine):
-        try:  # just build that in, because of recent error, which caused the controller to be BRICKED TODO: check this again
+        try:  # just build that in, because of recent error, which caused the controller to be BRICKED TODO: check if system is available
             if machine.lastError:
                 log.error("Last error: {}".format(machine.lastError))
 

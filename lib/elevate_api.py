@@ -4,6 +4,7 @@ Since this API is used in the same way as the ubirch_api, the signature of the m
 """
 from uuid import UUID
 
+# noinspection PyUnresolvedReferences
 import ujson as json
 
 import lib.urequests as requests

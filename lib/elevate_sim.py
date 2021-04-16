@@ -4,6 +4,7 @@
 |
 """
 from ubirch import SimProtocol
+# noinspection PyUnresolvedReferences
 from network import LTE
 
 
