@@ -1,14 +1,4 @@
-import ubinascii
-from network import LTE
-import ujson as json
-
-from lib.helpers import *
-from lib.config import *
-from lib.connection import get_connection, NB_IoT
-from lib.modem import get_imsi
-from sensor import MovementSensor
-from lib.elevate_api import ElevateAPI
-from lib.elevate_sim import ElevateSim
+import uos as os
 import ubinascii
 import ujson as json
 from network import LTE
@@ -102,28 +92,18 @@ class System:
             self.config = load_config()
             self.debug = self.config['debug']
             self.connection = get_connection(self.lte, self.config)
+            # configure connection timeouts according to config
+            if isinstance(self.connection, NB_IoT):
+                self.connection.setattachtimeout(self.config["nbiot_extended_attach_timeout"])
+                self.connection.setconnecttimeout(self.config["nbiot_extended_connect_timeout"])
+            self.elevate_api = ElevateAPI(self.config)
             self.uBirch_api = ubirch.API(self.config)
         except Exception as e:
             log.exception("Failed to load the configuration: %s" % str(e))
 
-            # generate and send an emergency event
-            event = ({
-                'properties.variables.lastError': {'value': str(e), 'sentAt': formated_time()}
-            })
-
-            self.send_emergency_event(event)
-
             # idle until the watchdog resets the system
             while True:
                 machine.idle()
-
-        # create an instance of the elevate API, which needs the configuration
-        self.elevate_api = ElevateAPI(self.config)
-
-        # configure connection timeouts according to config
-        if isinstance(self.connection, NB_IoT):
-            self.connection.setattachtimeout(self.config["nbiot_extended_attach_timeout"])
-            self.connection.setconnecttimeout(self.config["nbiot_extended_connect_timeout"])
 
     def load_sim_pin(self):
         """ load the SIM pin from flash or the backend + save it """
@@ -132,7 +112,7 @@ class System:
         self.sim_pin = get_pin_from_flash(pin_file, self.sim_imsi)
 
         # check if a pin was loaded
-        if self.sim_pin == None:
+        if self.sim_pin is None:
             # TODO exception handling not needed, since the caller inside the State Machine has to handle it?
             # ensure that there it a connection
             self.connection.ensure_connection()
@@ -146,7 +126,7 @@ class System:
 
     def init_sim_proto(self):
         """ initialise the uBirch-Protocol using the SIM """
-        # initialise the protocl instance
+        # initialise the protocol instance
         self.sim = ElevateSim(lte=self.lte, at_debug=self.debug)
 
         # unlock the SIM
@@ -163,8 +143,7 @@ class System:
                     'properties.variables.lastError': {'value': 'PIN is invalid, can\'t continue',
                                                        'sentAt': formated_time()}
                 })
-                self.send_emergency_event(
-                    event)  # CHECK: if transitions to an error state are implemented for SysInit, it might be better to send the
+                self.send_emergency_event(event)  # CHECK: if transitions to an error state are implemented for SysInit, it might be better to send the
                 #  emergency message in the error state (?)
 
                 # while True:
@@ -178,7 +157,6 @@ class System:
 
         # read the UUID of the SIM
         self.uBirch_uuid = self.sim.get_uuid(self.key_name)
-
         log.info("UUID: %s" % str(self.uBirch_uuid))
 
     def get_csr(self):
@@ -206,9 +184,8 @@ class System:
 
     def hard_reset(self):
         """ hard-resets the device by telling the Pysense board to turn the power off/on """
-        time.sleep(1)  # TODO Why?
-
-        self.sensor.pysense.reset_cmd()  # TODO raise error when reaching code after this call?
+        self.sensor.pysense.reset_cmd()
+        raise Exception("hard reset failed")
 
     def get_movement(self):
         """
@@ -321,7 +298,7 @@ class System:
             self.failed_sends += 1
             if self.failed_sends > 3:
                 log.exception(str(e) + "doing RESET")
-                # self.go_to_state('error')  # CHECK: state transistion in global function (outside of state / state machine), might be better to return success/fail and handle transition in the state machine
+                # self.go_to_state('error')  # CHECK: state transition in global function (outside of state / state machine), might be better to return success/fail and handle transition in the state machine
 
                 return False
             else:
