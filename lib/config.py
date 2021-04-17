@@ -5,7 +5,6 @@ import ujson as json
 NIOMON_SERVICE = "http://unsafe.niomon.{}.ubirch.com"
 DATA_SERVICE = "https://data.{}.ubirch.com/v1"
 BOOTSTRAP_SERVICE = "https://api.console.{}.ubirch.com/ubirch-web-ui/api/v1/devices/bootstrap"
-IDENTITY_SERVICE = "https://identity.{}.ubirch.com/api/certs/v1/csr/register"
 
 
 def load_config(sd_card_mounted: bool = False) -> dict:
@@ -33,8 +32,6 @@ def load_config(sd_card_mounted: bool = False) -> dict:
         "data": "<URL of data service>",
         "verify": "<URL of verification service>",
         "bootstrap": "<URL of bootstrap service>",
-        "CSR_country": "DE",
-        "CSR_organization": "ubirch GmbH",
         "interval": <measure interval in seconds>,
         "debug": <true or false>
     }
@@ -83,8 +80,5 @@ def load_config(sd_card_mounted: bool = False) -> dict:
 
     if 'bootstrap' not in cfg:
         cfg['bootstrap'] = BOOTSTRAP_SERVICE.format(cfg['env'])
-
-    if 'identity' not in cfg:
-        cfg['identity'] = IDENTITY_SERVICE.format(cfg['env'])
 
     return cfg
