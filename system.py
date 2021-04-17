@@ -38,6 +38,7 @@ class System:
         self.failed_sends = 0
 
         #### uBirch Protocol ####
+        self.uBirch_disable = False
         self.uBirch_api = None
         self.uBirch_uuid = None
 
@@ -55,7 +56,6 @@ class System:
         self.load_config()
         self.load_sim_pin()
         self.init_sim_proto()
-        self.get_csr()
 
     def init_lte_modem(self):
         """ initialise the LTE modem """
@@ -88,7 +88,6 @@ class System:
             log.info("Loading the configuration")
 
             # load the conifguration and init the connection + uBirch API
-            # TODO shouldn't config loading and conection setup be separated?
             self.config = load_config()
             self.debug = self.config['debug']
             self.connection = get_connection(self.lte, self.config)
@@ -113,12 +112,17 @@ class System:
 
         # check if a pin was loaded
         if self.sim_pin is None:
-            # TODO exception handling not needed, since the caller inside the State Machine has to handle it?
-            # ensure that there it a connection
-            self.connection.ensure_connection()
+            try:
+                # ensure that there it a connection
+                self.connection.ensure_connection()
+            except Exception as e:
+                raise(Exception("Error ensuring a connection for SIM pin bootstrapping: " + str(e)))
 
-            # start the bootstraping process/get the pin
-            self.sim_pin = bootstrap(self.sim_imsi, self.uBirch_api)
+            try:
+                # start the bootstraping process/get the pin
+                self.sim_pin = bootstrap(self.sim_imsi, self.uBirch_api)
+            except Exception as e:
+                raise(Exception("Error getting the pin: " + str(e)))
 
             # write the pin to flash
             with open(pin_file, "wb") as f:
@@ -127,7 +131,10 @@ class System:
     def init_sim_proto(self):
         """ initialise the uBirch-Protocol using the SIM """
         # initialise the protocol instance
-        self.sim = ElevateSim(lte=self.lte, at_debug=self.debug)
+        try:
+            self.sim = ElevateSim(lte=self.lte, at_debug=self.debug)
+        except Exception as e:
+            raise(Exception("Error initializing the SimProtocol (ElevateSim)" + str(e)))
 
         # unlock the SIM
         try:
@@ -136,51 +143,39 @@ class System:
             # if PIN is invalid, there is nothing we can do -> block
             if isinstance(e, ValueError):
                 self.led_breath.set_color(COLOR_SIM_FAIL)
-                log.critical("PIN is invalid, can't continue")
+                log.critical("PIN is invalid, disabling uBirch-functionality")
 
                 # create an emergency event and try to send it
                 event = ({
-                    'properties.variables.lastError': {'value': 'PIN is invalid, can\'t continue',
-                                                       'sentAt': formated_time()}
+                    'properties.variables.lastError': {
+                        'value': 'PIN is invalid, disabling uBirch-functionality',
+                        'sentAt': formated_time()
+                    }
                 })
-                self.send_emergency_event(event)  # CHECK: if transitions to an error state are implemented for SysInit, it might be better to send the
-                #  emergency message in the error state (?)
 
-                # while True:
-                #     machine.wdt.feed()  # avert reset from watchdog   TODO check this, do not want to be stuck here
-                #     machine.breath.update()
-                time.sleep(180)
-                self.hard_reset()  # CHECK: if the PIN is invalid, it will probably still be on next boot, and thus the SIM will become unusable after 3 resets
+                try:
+                    self.send_emergency_event(event)
+                except Exception as e:
+                    raise(Exception("Error informing elevate backend about invalid SIM Pin: " + str(e)))
+
+                # disable uBirching
+                self.uBirch_disable = True
+
+                # delete the loaded - invalid - PIN from flash
+                del_pin_from_flash(self.sim_imsi + ".bin")
             else:
                 # pass the exception back to the caller -> into the state machine
-                raise (e)
+                raise(Exception("Failed to unlock the uBirch applet on the SIM: " + str(e)))
 
         # read the UUID of the SIM
-        self.uBirch_uuid = self.sim.get_uuid(self.key_name)
-        log.info("UUID: %s" % str(self.uBirch_uuid))
-
-    def get_csr(self):
-        """ check if we already have the csr and get it if not """
-        csr_file = "csr_{}_{}.der".format(self.uBirch_uuid, self.uBirch_api.env)
-
-        # check if the file exists
-        if csr_file not in os.listdir():
+        if not self.uBirch_disable:
             try:
-                self.connection.ensure_connection()
+                self.uBirch_uuid = self.sim.get_uuid(self.key_name)
             except Exception as e:
-                log.exception(str(e))
-                # CHECK: shouldn't this transition to an error state? With the current implementation the system will transition to next state without sending CSR
+                raise(Exception("Error getting the UUID: " + str(e)))
 
-            try:
-                csr = submit_csr(self.key_name, self.config["CSR_country"], self.config["CSR_organization"],
-                                 self.sim, self.uBirch_api)
+            log.info("UUID: %s" % str(self.uBirch_uuid))
 
-                # write the csr to flash
-                with open(csr_file, "wb") as f:
-                    f.write(csr)
-            except Exception as e:
-                log.exception(str(e))
-                # CHECK: shouldn't this transition to an error state? With the current implementation the system will transition to next state without sending CSR
 
     def hard_reset(self):
         """ hard-resets the device by telling the Pysense board to turn the power off/on """
@@ -198,7 +193,7 @@ class System:
         """ Poll the current temperature and altitude sensor values. """
         self.sensor.poll_sensors()
 
-    def send_event(self, event: dict, ubirching: bool = False, debug: bool = True) -> bool:
+    def send_event(self, event: dict, ubirching: bool = False, debug: bool = True):
         """
         Send the data to eevate and the UPP to uBirch
         :param event: name of the event to send
@@ -208,7 +203,7 @@ class System:
 
         try:
             # check if the event should be uBirched
-            if ubirching == True:
+            if ubirching is True and self.uBirch_disable is not True:
                 serialized_event = serialize_json(event)
 
                 # unlock the SIM
@@ -248,7 +243,7 @@ class System:
                             write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
                         self.connection.disconnect()
 
-                        return False
+                        return
                     else:
                         # event was sent successfully and can be removed from backlog
                         events.pop(0)
@@ -259,7 +254,7 @@ class System:
                 if ubirching:
                     write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
 
-                return False
+                return
 
             # send UPPs
             self.connection.ensure_connection()
@@ -287,7 +282,7 @@ class System:
                     pass
             except Exception:
                 # sending failed, write unsent messages to flash and terminate
-                return False
+                return
             finally:
                 write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
                 if ubirching:
@@ -297,10 +292,7 @@ class System:
             # if too many communications fail, reset the system
             self.failed_sends += 1
             if self.failed_sends > 3:
-                log.exception(str(e) + "doing RESET")
-                # self.go_to_state('error')  # CHECK: state transition in global function (outside of state / state machine), might be better to return success/fail and handle transition in the state machine
-
-                return False
+                raise(Exception("Failed to send a message within 3 tries: " + str(e)))
             else:
                 log.exception(str(e))
 
@@ -310,9 +302,9 @@ class System:
             # this 'finally' block should be executed even if there is a return in the code above (will run just before returning from this function)
             # but might also make code less readable maybe
 
-        return True
+        return
 
-    def send_emergency_event(self, event) -> bool:
+    def send_emergency_event(self, event):
         """
         Send an emergency event to elevate
         :param event: name of the event to send
@@ -331,19 +323,17 @@ class System:
             log.debug("RESPONSE: {}".format(content))
 
         except Exception as e:
-            log.exception(str(e))
-
-            return False
+            raise(Exception("Failed to send an emergency event: " + str(e)))
         finally:
             self.connection.disconnect()
 
-        return True
+        return
 
     def get_state_from_backend(self):
         """
         Get the current state and log level from the elevate backend
         :param machine: state machine, providing the connection
-        :return: log level and new state or None, None in case of an error
+        :return: log level and new state or ("", "") in case of an error
         """
         level = ""
         state = ""
@@ -358,10 +348,8 @@ class System:
             if not 200 <= status_code < 300:
                 log.error("Elevate backend returned HTTP error code {}".format(status_code))
         except Exception as e:
+            # only log the exception - error detection is done by the state machine when looking up the level/state
             log.exception(str(e))
-
-            return None, None
-
         finally:
             self.connection.disconnect()
 
