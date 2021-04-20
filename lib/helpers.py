@@ -3,13 +3,14 @@ import uos as os
 import utime as time
 from uuid import UUID
 
-import logging
 import machine
 import pycom
-import ubirch
-from connection import Connection
-from modem import reset_modem
 from network import LTE
+
+import lib.ubirch as ubirch
+import lib.logging as logging
+from lib.connection import Connection
+from lib.modem import reset_modem
 
 ########
 # LED color codes
@@ -195,7 +196,7 @@ def serialize_json(msg: dict) -> bytes:
         elif value_type is dict:
             serialized += serialize_json(value).decode()
         elif value_type is bool:
-            if value == True:
+            if value:
                 serialized += "true"
             else:
                 serialized += "false"
@@ -261,9 +262,9 @@ class LedBreath(object):
         _green = self.color >> 8 & 0xFF
         _blue = self.color & 0xFF
         # combine the intensity and the colors into the new ligh value
-        _light = ((int)(_intensity * _red) << 16) + \
-                 ((int)(_intensity * _green) << 8) + \
-                 ((int)(_intensity * _blue))
+        _light = (int(_intensity * _red) << 16) + \
+                 (int(_intensity * _green) << 8) + \
+                 (int(_intensity * _blue))
         # set the RGBLED to the new value
         pycom.rgbled(_light)
 
