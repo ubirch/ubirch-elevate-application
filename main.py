@@ -11,7 +11,6 @@ import pycom
 from network import Server # WLAN,
 from state_machine import *
 from helpers import *
-import gc
 
 import machine
 import logging
@@ -20,6 +19,9 @@ import logging
 # we need to do this as early as possible in case an import cause a freeze for some reason
 # wdt = machine.WDT(timeout=60 * 1000)  # we set it to 5 minutes here and will reconfigure it when we have loaded the configuration
 # wdt.feed()  # we only feed it once since this code hopefully finishes with deepsleep (=no WDT) before reset_after_ms
+
+# setup the garbage collector
+garbage_collector_setup()
 
 # disable the FTP Server
 server = Server()
@@ -30,11 +32,9 @@ pycom.wifi_on_boot(False)
 # allocate extra buffer for emergency exception
 micropython.alloc_emergency_exception_buf(128)
 
-# bigger thread stack needed for the requests module used in UbirchDataClient (default: 4096)
-# _thread.stack_size(16384)
 
-# enable the garbage collector
-gc.enable()
+
+
 
 # create a logging for the system and store the information in a file
 FMT = "{\'t\':\'%(asctime)s\'," \
