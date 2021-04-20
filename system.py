@@ -200,6 +200,7 @@ class System:
         :param ubirching: enable/disable sending of UPPs to uBirch
         :param debug: for extra debugging outputs of messages
         """
+        # local variable, which decides if ubirch operations are executed
         _ubirching = ubirching and not self.uBirch_disable
 
         try:
@@ -238,23 +239,13 @@ class System:
                     log.debug("RESPONSE: {}".format(content))
 
                     if not 200 <= status_code < 300:
-                        log.error("BACKEND RESP {}: {}".format(status_code, content))  # TODO check error log content!
-                        write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                        if _ubirching:
-                            write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                        self.connection.disconnect()
-
+                        log.error("BACKEND RESP {}: {}".format(status_code, content))
                         return
                     else:
                         # event was sent successfully and can be removed from backlog
                         events.pop(0)
 
             except Exception:
-                # sending failed, write unsent messages to flash and terminate
-                write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                if _ubirching:
-                    write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
-
                 return
 
             # send UPPs
@@ -263,6 +254,9 @@ class System:
             try:
                 if _ubirching:
                     while len(upps) > 0:
+                        if debug:
+                            log.debug("Sending UPP: {}".format(upps[0]))
+
                         # send UPP to the ubirch authentication service to be anchored to the blockchain
                         status_code, content = send_backend_data(self.sim, self.lte, self.connection,
                                                                  self.uBirch_api.send_upp, self.uBirch_uuid,
@@ -271,7 +265,8 @@ class System:
                             log.debug("NIOMON RESPONSE: ({}) {}".format(status_code,
                                                                         "" if status_code == 200 else ubinascii.hexlify(
                                                                             content).decode()))
-                        except Exception:  # this is only excaption handling in case the content can not be decyphered
+                        except Exception:
+                            # this is only exception handling in case the content can not be decyphered
                             pass
                         # communication worked in general, now check server response
                         if not 200 <= status_code < 300 and not status_code == 409:
@@ -282,12 +277,8 @@ class System:
                 else:
                     pass
             except Exception:
-                # sending failed, write unsent messages to flash and terminate
+                # sending failed, terminate
                 return
-            finally:
-                write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                if _ubirching:
-                    write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
 
         except Exception as e:
             # if too many communications fail, reset the system
@@ -298,10 +289,11 @@ class System:
                 log.exception(str(e))
 
         finally:
+            # make sure to store the unsent events and UPPs to the backlog files and disconnect connection
+            write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
+            if _ubirching:
+                write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
             self.connection.disconnect()
-            # CHECK: I'm not 100% sure, but it might be possible to move the write_backlog calls from above here as
-            # this 'finally' block should be executed even if there is a return in the code above (will run just before returning from this function)
-            # but might also make code less readable maybe
 
         return
 
