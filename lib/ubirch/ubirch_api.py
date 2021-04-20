@@ -25,7 +25,6 @@ class API:
     def __init__(self, cfg: dict):
         self.debug = cfg['debug']
         self.env = cfg['env']
-        self.identity_service_url = cfg['identity']
         self.data_service_url = cfg['data']
         self.auth_service_url = cfg['niomon']
         self.bootstrap_service_url = cfg['bootstrap']
@@ -79,14 +78,3 @@ class API:
         content = r.content
         r.close()
         return status_code, content
-
-    def send_csr(self, csr: bytes) -> (int, bytes):
-        """
-        Send a X.509 Certificate Signing Request to the ubirch identity service
-        :param csr: the CSR in der format (binary)
-        :return: the server response status code, the server response content (body)
-        """
-        if self.debug: print("** sending CSR to " + self.identity_service_url)
-        return _send_request(url=self.identity_service_url,
-                             data=csr,
-                             headers={'Content-Type': 'application/octet-stream'})

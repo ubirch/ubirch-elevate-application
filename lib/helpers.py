@@ -78,6 +78,16 @@ def get_pin_from_flash(pin_file: str, imsi: str) -> str or None:
         return None
 
 
+def del_pin_from_flash(pin_file : str) -> bool:
+    """ deletes the given pin_file; returns true if found and deleted """
+    if pin_file in os.listdir():
+        os.remove(pin_file)
+
+        return True
+    
+    return False
+
+
 def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_function, uuid, data) -> (int, bytes):
     MAX_MODEM_RESETS = 1  # number of retries with modem reset before giving up
     MAX_RECONNECTS = 1  # number of retries with reconnect before trying a modem reset
@@ -138,19 +148,6 @@ def bootstrap(imsi: str, api: ubirch.API) -> str:
         raise Exception("bootstrapping returned invalid PIN: {}".format(e))
 
     return pin
-
-
-def submit_csr(key_name: str, csr_country: str, csr_organization: str, sim: ubirch.SimProtocol,
-               api: ubirch.API) -> bytes:
-    """
-    Submit a X.509 Certificate Signing Request. Returns CSR in der format.
-    """
-    print("** submitting CSR to identity service ...")
-    csr = sim.generate_csr(key_name, csr_country, csr_organization)
-    status_code, content = api.send_csr(csr)
-    if not 200 <= status_code < 300:
-        raise Exception("submitting CSR failed: ({}) {}".format(status_code, str(content)))
-    return csr
 
 
 def pack_data_json(uuid: UUID, data: dict) -> bytes:
