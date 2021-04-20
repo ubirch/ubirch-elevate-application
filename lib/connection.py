@@ -1,4 +1,3 @@
-import sys
 import utime as time
 
 import machine
