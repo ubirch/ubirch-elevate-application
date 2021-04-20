@@ -200,10 +200,11 @@ class System:
         :param ubirching: enable/disable sending of UPPs to uBirch
         :param debug: for extra debugging outputs of messages
         """
+        _ubirching = ubirching and not self.uBirch_disable
 
         try:
             # check if the event should be uBirched
-            if ubirching is True and self.uBirch_disable is not True:
+            if _ubirching:
                 serialized_event = serialize_json(event)
 
                 # unlock the SIM
@@ -239,7 +240,7 @@ class System:
                     if not 200 <= status_code < 300:
                         log.error("BACKEND RESP {}: {}".format(status_code, content))  # TODO check error log content!
                         write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                        if ubirching:
+                        if _ubirching:
                             write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
                         self.connection.disconnect()
 
@@ -251,7 +252,7 @@ class System:
             except Exception:
                 # sending failed, write unsent messages to flash and terminate
                 write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                if ubirching:
+                if _ubirching:
                     write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
 
                 return
@@ -260,7 +261,7 @@ class System:
             self.connection.ensure_connection()
 
             try:
-                if ubirching:
+                if _ubirching:
                     while len(upps) > 0:
                         # send UPP to the ubirch authentication service to be anchored to the blockchain
                         status_code, content = send_backend_data(self.sim, self.lte, self.connection,
@@ -285,7 +286,7 @@ class System:
                 return
             finally:
                 write_backlog(events, EVENT_BACKLOG_FILE, BACKLOG_MAX_LEN)
-                if ubirching:
+                if _ubirching:
                     write_backlog(upps, UPP_BACKLOG_FILE, BACKLOG_MAX_LEN)
 
         except Exception as e:
