@@ -1,4 +1,3 @@
-import uos as os
 import ubinascii
 import ujson as json
 from network import LTE
@@ -25,6 +24,7 @@ class System:
 
     def __init__(self):
         self.debug = None
+        self.config = None
 
         #### SIM ####
         self.sim = None
@@ -176,7 +176,6 @@ class System:
 
             log.info("UUID: %s" % str(self.uBirch_uuid))
 
-
     def hard_reset(self):
         """ hard-resets the device by telling the Pysense board to turn the power off/on """
         self.sensor.pysense.reset_cmd()
@@ -220,6 +219,9 @@ class System:
         # local variable, which decides if ubirch operations are executed
         _ubirching = ubirching and not self.uBirch_disable
 
+        events = list()
+        upps = list()
+
         try:
             # check if the event should be uBirched
             if _ubirching:
@@ -262,7 +264,7 @@ class System:
                         # event was sent successfully and can be removed from backlog
                         events.pop(0)
 
-            except Exception:
+            except:
                 return
 
             # send UPPs
@@ -279,10 +281,9 @@ class System:
                                                                  self.uBirch_api.send_upp, self.uBirch_uuid,
                                                                  ubinascii.unhexlify(upps[0]))
                         try:
-                            log.debug("NIOMON RESPONSE: ({}) {}".format(status_code,
-                                                                        "" if status_code == 200 else ubinascii.hexlify(
-                                                                            content).decode()))
-                        except Exception:
+                            log.debug("NIOMON RESPONSE: ({}) {}".format(status_code, "" if status_code == 200
+                                                                        else ubinascii.hexlify(content).decode()))
+                        except:
                             # this is only exception handling in case the content can not be decyphered
                             pass
                         # communication worked in general, now check server response
@@ -293,7 +294,7 @@ class System:
                             upps.pop(0)
                 else:
                     pass
-            except Exception:
+            except:
                 # sending failed, terminate
                 return
 
@@ -345,9 +346,8 @@ class System:
         :param machine: state machine, providing the connection
         :return: log level and new state or ("", "") in case of an error
         """
-        level = ""
-        state = ""
-        # CHECK: TODO: document what the backend might reply, e.g. especially if "empty" state information is possible
+        level = ""      # level will be handled from helpers.translate_backend_log_level()
+        state = ""      # state will be handled from helpers.translate_backend_state_name()
 
         # send data message to data service, with reconnects/modem resets if necessary
         try:
