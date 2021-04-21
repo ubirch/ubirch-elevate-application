@@ -1,12 +1,12 @@
 """
 from: https://learn.adafruit.com/circuitpython-101-state-machines?view=all#code
 """
-import machine as machine
+import machine
 import ubinascii
 import uos as os
 import system
 
-import lib.logging
+import lib.logging as logging
 from lib.helpers import *
 from lib.realtimeclock import enable_time_sync, wait_for_sync, board_time_valid, NTP_SERVER_BACKUP
 
