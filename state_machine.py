@@ -561,7 +561,7 @@ class StateBootloader(State):
         return 'bootloader'
 
     def _enter(self, state_machine):
-        state_machine.system.breath.set_color(LED_WHITE_BRIGHT)
+        state_machine.system.led_breath.set_color(LED_WHITE_BRIGHT)
 
     def _exit(self, state_machine):
         raise SystemError("exiting the bootloader state should never happen here")
