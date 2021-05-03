@@ -1,12 +1,12 @@
 """
 from: https://learn.adafruit.com/circuitpython-101-state-machines?view=all#code
 """
-import machine as machine
+import machine
 import ubinascii
 import uos as os
 import system
 
-import lib.logging
+import lib.logging as logging
 from lib.helpers import *
 from lib.realtimeclock import enable_time_sync, wait_for_sync, board_time_valid, NTP_SERVER_BACKUP
 
@@ -561,7 +561,7 @@ class StateBootloader(State):
         return 'bootloader'
 
     def _enter(self, state_machine):
-        state_machine.system.breath.set_color(LED_WHITE_BRIGHT)
+        state_machine.system.led_breath.set_color(LED_WHITE_BRIGHT)
 
     def _exit(self, state_machine):
         raise SystemError("exiting the bootloader state should never happen here")

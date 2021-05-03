@@ -35,7 +35,7 @@ def load_config(sd_card_mounted: bool = False) -> dict:
         "interval": <measure interval in seconds>,
         "debug": <true or false>
     }
-    :param user_config: the user config file
+    :param sd_card_mounted: flag for sd card usage instead of internal flash
     :return: a dict with the available configurations
     """
 

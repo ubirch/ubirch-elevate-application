@@ -1,7 +1,7 @@
 import utime as time
 import micropython
 
-from logging.handlers import RotatingFileHandler
+from lib.logging.handlers import RotatingFileHandler
 
 import pycom
 from network import Server
@@ -10,7 +10,7 @@ from helpers import *
 import gc
 
 import machine
-import logging
+import lib.logging as logging
 
 
 # disable the FTP Server
