@@ -1,4 +1,4 @@
-# https://pypi.org/project/micropython-logging/
+""" :from: https://pypi.org/project/micropython-logging/ """
 
 import utime
 import sys

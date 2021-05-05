@@ -1,7 +1,6 @@
-# https://pypi.org/project/micropython-logging/
+""" :from: https://pypi.org/project/micropython-logging/ """
 
 import uos as os
-import sys
 from . import Handler
 
 

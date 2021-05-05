@@ -4,13 +4,14 @@ import utime as time
 from uuid import UUID
 import gc
 
-import logging
 import machine
 import pycom
-import ubirch
-from connection import Connection
-from modem import reset_modem
 from network import LTE
+
+import lib.ubirch as ubirch
+import lib.logging as logging
+from lib.connection import Connection
+from lib.modem import reset_modem
 
 ########
 # LED color codes
@@ -205,7 +206,7 @@ def serialize_json(msg: dict) -> bytes:
         elif value_type is dict:
             serialized += serialize_json(value).decode()
         elif value_type is bool:
-            if value == True:
+            if value:
                 serialized += "true"
             else:
                 serialized += "false"
@@ -271,9 +272,9 @@ class LedBreath(object):
         _green = self.color >> 8 & 0xFF
         _blue = self.color & 0xFF
         # combine the intensity and the colors into the new ligh value
-        _light = ((int)(_intensity * _red) << 16) + \
-                 ((int)(_intensity * _green) << 8) + \
-                 ((int)(_intensity * _blue))
+        _light = (int(_intensity * _red) << 16) + \
+                 (int(_intensity * _green) << 8) + \
+                 (int(_intensity * _blue))
         # set the RGBLED to the new value
         pycom.rgbled(_light)
 
@@ -416,3 +417,54 @@ def translate_reset_cause(reset_cause: int):
         machine.BROWN_OUT_RESET: 'Brown Out'
     }
     return switcher.get(reset_cause, 'Unknown')
+
+
+def get_current_version():
+    try:
+        from OTA_VERSION import VERSION
+    except ImportError:
+        VERSION = '1.0.0'
+    return VERSION
+
+
+def read_log(num_errors: int = 3):
+    """
+    Read the last ERRORs from log and form a string of json like list.
+    :param num_errors: number of errors to return
+    :return: String of the last errors
+    :example: {'t':'1970-01-01T00:00:23Z','l':'ERROR','m':...}
+    """
+    last_log = ""
+    error_counter = 0
+    file_index = 1
+    filename = logging.FILENAME
+    # make a list of all log files
+    all_logfiles_list = []
+    if filename in os.listdir():
+        all_logfiles_list.append(filename)
+    while (filename + '.{}'.format(file_index)) in os.listdir():
+        all_logfiles_list.append(filename + '.{}'.format(file_index))
+        file_index += 1
+
+    # iterate over all log files to get the required ERROR messages
+    for logfile in all_logfiles_list:
+        with open(logfile, 'r') as reader:
+            lines = reader.readlines()
+        for line in reversed(lines):
+            # only take the error messages from the log
+            if "ERROR" in line[
+                          :42]:  # only look at the beginning of the line, otherwise the string can appear recursively
+                error_counter += 1
+                if error_counter > num_errors:
+                    break
+                last_log += (line.rstrip('\n'))
+                # check if the message was closed with "}", if not, add it to ensure json
+                if not "}" in line:
+                    last_log += "},"
+                else:
+                    last_log += ","
+            else:
+                pass
+        if error_counter > num_errors:
+            break
+    return last_log.rstrip(',')

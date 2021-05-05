@@ -1,24 +1,16 @@
-# TODO:
-#  check all print statements
-#  adopt README.md
 import utime as time
 import micropython
-import sys
 
-from logging.handlers import RotatingFileHandler
+from lib.logging.handlers import RotatingFileHandler
 
 import pycom
-from network import Server # WLAN,
+from network import Server
 from state_machine import *
 from helpers import *
 
 import machine
-import logging
+import lib.logging as logging
 
-# set watchdog: if execution hangs/takes longer than 'timeout' an automatic reset is triggered
-# we need to do this as early as possible in case an import cause a freeze for some reason
-# wdt = machine.WDT(timeout=60 * 1000)  # we set it to 5 minutes here and will reconfigure it when we have loaded the configuration
-# wdt.feed()  # we only feed it once since this code hopefully finishes with deepsleep (=no WDT) before reset_after_ms
 
 # setup the garbage collector
 garbage_collector_setup()
@@ -31,9 +23,6 @@ pycom.wifi_on_boot(False)
 
 # allocate extra buffer for emergency exception
 micropython.alloc_emergency_exception_buf(128)
-
-
-
 
 
 # create a logging for the system and store the information in a file

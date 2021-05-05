@@ -1,7 +1,6 @@
 """
 | Elevate Sim class, which inherits the SimProtocol from ubirch_sim and
 | extends the functionality for the elevate usecase
-|
 """
 from ubirch import SimProtocol
 from network import LTE

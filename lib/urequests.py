@@ -42,7 +42,6 @@ ssl_stored_sessions = dict({})
 def request(method, url, data=None, json=None, headers=None, stream=None, parse_headers=True):
     if headers is None:
         headers = {}
-    global ssl_stored_sessions
     redir_cnt = 1
     if json is not None:
         assert data is None
@@ -77,30 +76,11 @@ def request(method, url, data=None, json=None, headers=None, stream=None, parse_
             resp_d = {}
 
         s = usocket.socket(ai[0], ai[1], ai[2])
-        s.settimeout(SOCKET_TIMEOUT_S)
         try:
             if proto == "https:":
-                if host in ssl_stored_sessions:
-                    print("##### found session")
-                    session = ssl_stored_sessions[host]
-                    try:
-                        s = ussl.wrap_socket(s, server_hostname=host, saved_session=session)
-                        s.connect(ai[-1])
-                        ssl_stored_sessions.pop(host)
-                    except Exception as e:
-                        print("##### error with saved session {}".format(repr(e)))
-                        return
-                else:
-                    print("##### no session found")
-                    s = ussl.wrap_socket(s, server_hostname=host)
-                    s.connect(ai[-1])
+                s = ussl.wrap_socket(s, server_hostname=host)
+            s.connect(ai[-1])
 
-                ssl_stored_sessions.update({host: ussl.save_session(s)})
-                if len(ssl_stored_sessions) > 16:
-                    print("##### too many stored session, will be cleared")
-                    ssl_stored_sessions.clear()
-            else:   # if HTTP only
-                s.connect(ai[-1])
             s.write(b"%s /%s HTTP/1.0\r\n" % (method, path))
             if not "Host" in headers:
                 s.write(b"Host: %s\r\n" % host)
@@ -114,14 +94,16 @@ def request(method, url, data=None, json=None, headers=None, stream=None, parse_
                 s.write(b"Content-Type: application/json\r\n")
             if data:
                 s.write(b"Content-Length: %d\r\n" % len(data))
-            s.write(b"Connection: shutdown\r\n\r\n")
+            s.write(b"Connection: close\r\n\r\n")
             if data:
-                s.write(data[:int(len(data)/2)])
-                s.write(data[int(len(data)/2):])
+                s.write(data)
 
             l = s.readline()
-            #print(l)
-            l = l.split(None, 2)
+            # print(l)
+            try:
+                l = l.split(None, 2)
+            except Exception as e:
+                raise e
             status = int(l[1])
             reason = ""
             if len(l) > 2:
@@ -130,7 +112,7 @@ def request(method, url, data=None, json=None, headers=None, stream=None, parse_
                 l = s.readline()
                 if not l or l == b"\r\n":
                     break
-                #print(l)
+                # print(l)
 
                 if l.startswith(b"Transfer-Encoding:"):
                     if b"chunked" in l:
@@ -140,7 +122,7 @@ def request(method, url, data=None, json=None, headers=None, stream=None, parse_
                         raise ValueError("Too many redirects")
                     redir_cnt -= 1
                     url = l[9:].decode().strip()
-                    #print("redir to:", url)
+                    # print("redir to:", url)
                     status = 300
                     break
 
@@ -150,6 +132,8 @@ def request(method, url, data=None, json=None, headers=None, stream=None, parse_
                     l = l.decode()
                     k, v = l.split(":", 1)
                     resp_d[k] = v.strip()
+                else:
+                    parse_headers(l, resp_d)
         except OSError:
             s.close()
             raise
@@ -168,17 +152,22 @@ def request(method, url, data=None, json=None, headers=None, stream=None, parse_
 def head(url, **kw):
     return request("HEAD", url, **kw)
 
+
 def get(url, **kw):
     return request("GET", url, **kw)
+
 
 def post(url, **kw):
     return request("POST", url, **kw)
 
+
 def put(url, **kw):
     return request("PUT", url, **kw)
 
+
 def patch(url, **kw):
     return request("PATCH", url, **kw)
+
 
 def delete(url, **kw):
     return request("DELETE", url, **kw)

@@ -1,4 +1,3 @@
-import sys
 import utime as time
 
 import machine
@@ -34,4 +33,4 @@ def board_time():
 
 
 def board_time_valid():
-    return (board_time()[0] >= 2020)
+    return board_time()[0] >= 2020
