@@ -7,11 +7,13 @@ import pycom
 from network import Server
 from state_machine import *
 from helpers import *
-import gc
 
 import machine
 import lib.logging as logging
 
+
+# setup the garbage collector
+garbage_collector_setup()
 
 # disable the FTP Server
 server = Server()
@@ -22,8 +24,6 @@ pycom.wifi_on_boot(False)
 # allocate extra buffer for emergency exception
 micropython.alloc_emergency_exception_buf(128)
 
-# enable the garbage collector
-gc.enable()
 
 # create a logging for the system and store the information in a file
 FMT = "{\'t\':\'%(asctime)s\'," \

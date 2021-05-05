@@ -2,6 +2,7 @@ import math
 import uos as os
 import utime as time
 from uuid import UUID
+import gc
 
 import machine
 import pycom
@@ -46,7 +47,16 @@ COLOR_UNKNOWN_FAIL = LED_WHITE_BRIGHT
 
 
 ########
-def mount_sd():  # todo check if this is the right place for this function
+
+GARBAGE_COLLECT_MAX_BYTES = 524288
+def garbage_collector_setup(debug: bool = True):
+    gc.enable()
+    gc.threshold(GARBAGE_COLLECT_MAX_BYTES)
+    if debug:
+        print("garbage collector threshold = {} Byte".format(gc.threshold()))
+
+
+def mount_sd():
     try:
         sd = machine.SD()
         try:  # check if sd is already mounted
