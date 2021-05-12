@@ -2,8 +2,9 @@ import utime as time
 
 from network import LTE
 
+MODEM_DEBUG = True
 
-def _send_at_cmd(lte: LTE, cmd: str, debug_print=False) -> []:
+def _send_at_cmd(lte: LTE, cmd: str, debug_print=MODEM_DEBUG) -> []:
     result = []
     for _ in range(3):
         if debug_print: print("++ " + cmd)
@@ -14,12 +15,12 @@ def _send_at_cmd(lte: LTE, cmd: str, debug_print=False) -> []:
             if debug_print: print()
             break
 
-        time.sleep(0.2)
+        time.sleep(0.1)
 
     return result
 
 
-def reset_modem(lte: LTE, debug_print=False):
+def reset_modem(lte: LTE, debug_print=MODEM_DEBUG):
     function_level = "1"
     cereg_level = "0"
 
@@ -55,7 +56,7 @@ def reset_modem(lte: LTE, debug_print=False):
     else:
         raise Exception("could not set CEREG level")
 
-def get_imsi(lte: LTE, debug_print=False) -> str:
+def get_imsi(lte: LTE, debug_print=MODEM_DEBUG) -> str:
     """
     Get the international mobile subscriber identity (IMSI) of the SIM card
     """
