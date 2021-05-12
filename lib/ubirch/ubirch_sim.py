@@ -331,7 +331,7 @@ class SimProtocol(object):
         :return: if SIM access was successful
         """
         for _ in range(3):
-            time.sleep(0.2)
+            time.sleep(0.1)
             result = self._send_at_cmd("AT+CSIM=?")
             if result[-1] == 'OK':
                 return True
@@ -344,7 +344,7 @@ class SimProtocol(object):
         """
         if self.DEBUG: print("\n>> selecting SIM application")
         for _ in range(2):
-            time.sleep(0.2)
+            time.sleep(0.1)
             data, code = self._execute(STK_APP_SELECT.format(APP_DF))
             if code == STK_OK:
                 return True

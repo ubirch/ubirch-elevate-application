@@ -28,7 +28,7 @@ micropython.alloc_emergency_exception_buf(128)
 # create a logging for the system and store the information in a file
 FMT = "{\'t\':\'%(asctime)s\'," \
       "\'l\':\'%(levelname)s\'," \
-      "\'m\': \'%(message)s\'}"
+      "\'m\':\'%(message)s\'}"
 #       "\'n\':\'%(name)s\'," \
 fileHandler = RotatingFileHandler(filename=logging.FILENAME, maxBytes=16384, backupCount=4)
 fileHandler.setFormatter(logging.Formatter(fmt=FMT))
