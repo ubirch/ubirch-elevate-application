@@ -8,10 +8,10 @@ import machine
 import pycom
 from network import LTE
 
+from lib.modem import Modem
 import lib.ubirch as ubirch
 import lib.logging as logging
 from lib.connection import Connection
-from lib.modem import reset_modem
 
 ########
 # LED color codes
@@ -99,7 +99,7 @@ def del_pin_from_flash(pin_file : str) -> bool:
     return False
 
 
-def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_function, uuid, data) -> (int, bytes):
+def send_backend_data(sim: ubirch.SimProtocol, modem: Modem, conn: Connection, api_function, uuid, data) -> (int, bytes):
     MAX_MODEM_RESETS = 1  # number of retries with modem reset before giving up
     MAX_RECONNECTS = 1  # number of retries with reconnect before trying a modem reset
 
@@ -108,7 +108,7 @@ def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_f
         if reset_attempts > 0:
             print("\tretrying with modem reset")
             sim.deinit()
-            reset_modem(lte)  # TODO: should probably be connection.reset_hardware()
+            modem.reset()  # TODO: should probably be connection.reset_hardware()
             sim.init()
             conn.ensure_connection()
 
@@ -138,7 +138,7 @@ def send_backend_data(sim: ubirch.SimProtocol, lte: LTE, conn: Connection, api_f
         raise Exception("could not establish connection to backend")
 
 
-def bootstrap(imsi: str, api: ubirch.API) -> str:
+def bootstrap(imsi: str, api: ubirch.UbirchAPI) -> str:
     """
     Load bootstrap PIN, returns PIN
     """

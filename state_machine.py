@@ -325,8 +325,8 @@ class StateSendingDiagnostics(State):
         version = get_current_version()
 
         # get the signal quality and network status
-        rssi, ber = state_machine.system.sim.get_signal_quality(state_machine.system.debug)
-        cops = state_machine.system.sim.get_network_stats(state_machine.system.debug)  # TODO this is not yet decyphered
+        rssi, ber = state_machine.system.sim.get_signal_quality()
+        cops = state_machine.system.sim.get_network_stats()  # TODO this is not yet decyphered
         event = ({'properties.variables.cellSignalPower': {'value': rssi},
                   'properties.variables.cellSignalQuality': {'value': ber},
                   'properties.variables.cellTechnology': {'value': cops},

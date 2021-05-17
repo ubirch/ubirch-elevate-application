@@ -5,9 +5,10 @@ from network import LTE
 from lib.config import *
 from lib.connection import get_connection, NB_IoT
 from lib.elevate_api import ElevateAPI
-from lib.elevate_sim import ElevateSim
+from lib.ubirch import SimProtocol, UbirchAPI
+
 from lib.helpers import *
-from lib.modem import get_imsi
+from lib.modem import Modem
 from sensor import MovementSensor
 
 # backlog constants
@@ -35,6 +36,7 @@ class System:
         #### Connection ####
         self.connection = None
         self.lte = None
+        self.modem = None
         self.failed_sends = 0
 
         #### uBirch Protocol ####
@@ -63,15 +65,17 @@ class System:
             # check if self.lte is already initialised/initialise it
             if not self.lte:
                 self.lte = LTE()
+            if not self.modem:
+                self.modem = Modem(self.lte)
 
             # reset the LTE modem (ensure that it is in a usable state)
             log.warning("Resetting the LTE modem")  # TODO why is this a warning and not info?
-            reset_modem(self.lte)
+            self.modem.reset()
             log.warning("Done resetting the LTE modem")
 
             # get/log the IMSI
             log.info("Reading the IMSI from the SIM")
-            self.sim_imsi = get_imsi(self.lte)
+            self.sim_imsi = self.modem.get_imsi()
             log.info("SIM IMSI: %s" % str(self.sim_imsi))
         except Exception as e:
             log.exception("Failed to set up the LTE Modem: %s" % str(e))
@@ -96,7 +100,7 @@ class System:
                 self.connection.setattachtimeout(self.config["nbiot_extended_attach_timeout"])
                 self.connection.setconnecttimeout(self.config["nbiot_extended_connect_timeout"])
             self.elevate_api = ElevateAPI(self.config)
-            self.uBirch_api = ubirch.API(self.config)
+            self.uBirch_api = UbirchAPI(self.config)
         except Exception as e:
             log.exception("Failed to load the configuration: %s" % str(e))
 
@@ -132,7 +136,7 @@ class System:
         """ initialise the uBirch-Protocol using the SIM """
         # initialise the protocol instance
         try:
-            self.sim = ElevateSim(lte=self.lte, at_debug=self.debug)
+            self.sim = SimProtocol(modem=self.modem, at_debug=self.debug)
         except Exception as e:
             raise(Exception("Error initializing the SimProtocol (ElevateSim)" + str(e)))
 
@@ -343,7 +347,6 @@ class System:
     def get_state_from_backend(self):
         """
         Get the current state and log level from the elevate backend
-        :param machine: state machine, providing the connection
         :return: log level and new state or ("", "") in case of an error
         """
         level = ""      # level will be handled from helpers.translate_backend_log_level()
