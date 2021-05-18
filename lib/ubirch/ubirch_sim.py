@@ -163,7 +163,8 @@ class SimProtocol(object):
         self._AT_session_active = False  # wether or not the lib currently opened an AT commands session
         self._AT_session_modem_suspended = False  # wether the modem was suspended for an AT session
         self.DEBUG = at_debug
-        self.init()
+        self.sim_pin = None
+        # self.init()
 
     def __del__(self):
         self.deinit()
@@ -183,9 +184,16 @@ class SimProtocol(object):
             if not self.modem.check_sim_access():
                 raise Exception("couldn't access SIM")
 
-            # # select the SIGNiT application
-            # if not self._select_app():
-            #     raise Exception("selecting SIM application failed")
+            # select the SIGNiT application
+            if not self._select_app():
+                raise Exception("selecting SIM application failed")
+
+            # unlock SIGNiT applet
+            if not self.sim_auth(self.sim_pin):
+                raise Exception("authentication failed")
+        except Exception as e:
+            print("SIM init failed: {}".format(e))
+            raise Exception("SIM init failed: {}".format(e))
         finally:
             self.modem.finish_AT_session()
 
@@ -318,26 +326,13 @@ class SimProtocol(object):
             data += more_data
         return data, code
 
-    def _check_sim_access(self) -> bool: # TODO CHECK might be obsolete
-        """
-        Checks Generic SIM Access.
-        :return: if SIM access was successful
-        """
-        for _ in range(3):
-            time.sleep(0.1)
-            result = self._send_at_cmd("AT+CSIM=?")
-            if result[-1] == 'OK':
-                return True
-
-        return False
-
     def _select_app(self) -> bool:
         """
         Select the SIM application to execute secure operations.
         """
         if self.DEBUG: print("\n>> selecting SIM application")
         for _ in range(3):
-            time.sleep(0.1) # TODO CHECK if needed
+            time.sleep_ms(50)
             data, code = self._execute(STK_APP_SELECT.format(APP_DF))
             if code == STK_OK:
                 return True
@@ -371,14 +366,14 @@ class SimProtocol(object):
         if self.DEBUG: print("\n>> unlocking SIM")
         self.modem.prepare_AT_session()
         try:
-            if not self._select_app():
-                raise Exception("selecting SIM application failed")
             data, code = self._execute(STK_AUTH_PIN.format(len(pin), binascii.hexlify(pin).decode()))
         finally:
             self.modem.finish_AT_session()
 
         if code != STK_OK:
             raise ValueError("PIN not accepted: {}".format(code))
+
+        return True
 
     def random(self, length: int) -> bytes:
         """

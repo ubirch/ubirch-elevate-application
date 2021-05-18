@@ -411,10 +411,10 @@ class StateMeasuringPaused(State):
         })
         state_machine.system.send_event(event, ubirching=True)
         # now send the state log also
-        last_log = state_machine.concat_state_log()
-        if not last_log == "":
-            event = ({'properties.variables.lastLogContent': {'value': last_log}})
-            state_machine.system.send_event(event)
+        # last_log = state_machine.concat_state_log() TODO CHECK this might be obsolete
+        # if not last_log == "":
+        #     event = ({'properties.variables.lastLogContent': {'value': last_log}})
+        #     state_machine.system.send_event(event)
 
         now = time.time()
         if now >= self.enter_timestamp + STANDARD_DURATION_S:

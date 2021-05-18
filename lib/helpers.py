@@ -6,7 +6,6 @@ import gc
 
 import machine
 import pycom
-from network import LTE
 
 from lib.modem import Modem
 import lib.ubirch as ubirch
@@ -108,7 +107,7 @@ def send_backend_data(sim: ubirch.SimProtocol, modem: Modem, conn: Connection, a
         if reset_attempts > 0:
             print("\tretrying with modem reset")
             sim.deinit()
-            modem.reset()  # TODO: should probably be connection.reset_hardware()
+            modem.reset()
             sim.init()
             conn.ensure_connection()
 

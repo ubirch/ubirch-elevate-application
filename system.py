@@ -69,9 +69,9 @@ class System:
                 self.modem = Modem(self.lte)
 
             # reset the LTE modem (ensure that it is in a usable state)
-            log.warning("Resetting the LTE modem")  # TODO why is this a warning and not info?
+            log.info("Resetting the LTE modem")
             self.modem.reset()
-            log.warning("Done resetting the LTE modem")
+            log.info("Done resetting the LTE modem")
 
             # get/log the IMSI
             log.info("Reading the IMSI from the SIM")
@@ -137,12 +137,13 @@ class System:
         # initialise the protocol instance
         try:
             self.sim = SimProtocol(modem=self.modem, at_debug=self.debug)
+            self.sim.sim_pin = self.sim_pin # TODO CHECK
         except Exception as e:
             raise(Exception("Error initializing the SimProtocol (ElevateSim)" + str(e)))
 
         # unlock the SIM
         try:
-            self.sim.sim_auth(self.sim_pin)
+            self.sim.init()
         except Exception as e:
             # if PIN is invalid, there is nothing we can do -> block
             if isinstance(e, ValueError):
@@ -231,9 +232,6 @@ class System:
             if _ubirching:
                 serialized_event = serialize_json(event)
 
-                # unlock the SIM
-                self.sim.sim_auth(self.sim_pin)
-
                 # use the SIM to create the UPP
                 log.info("Creating a UPP")
                 upp = self.sim.message_chained(self.key_name, serialized_event, hash_before_sign=True)
@@ -256,7 +254,7 @@ class System:
                         log.debug("Sending event: {}".format(events[0]))
 
                     # send data message to data service, with reconnects/modem resets if necessary
-                    status_code, content = send_backend_data(self.sim, self.lte, self.connection,
+                    status_code, content = send_backend_data(self.sim, self.modem, self.connection,
                                                              self.elevate_api.send_data, self.uBirch_uuid,
                                                              events[0])
                     log.debug("RESPONSE: {}".format(content))
@@ -281,7 +279,7 @@ class System:
                             log.debug("Sending UPP: {}".format(upps[0]))
 
                         # send UPP to the ubirch authentication service to be anchored to the blockchain
-                        status_code, content = send_backend_data(self.sim, self.lte, self.connection,
+                        status_code, content = send_backend_data(self.sim, self.modem, self.connection,
                                                                  self.uBirch_api.send_upp, self.uBirch_uuid,
                                                                  ubinascii.unhexlify(upps[0]))
                         try:
@@ -332,7 +330,7 @@ class System:
         try:
             self.connection.ensure_connection()
             # send data message to data service, with reconnects/modem resets if necessary
-            _, content = send_backend_data(self.sim, self.lte, self.connection,
+            _, content = send_backend_data(self.sim, self.modem, self.connection,
                                            self.elevate_api.send_data, self.uBirch_uuid,
                                            event_string)
             log.debug("RESPONSE: {}".format(content))
@@ -355,7 +353,7 @@ class System:
         # send data message to data service, with reconnects/modem resets if necessary
         try:
             self.connection.ensure_connection()
-            status_code, level, state = send_backend_data(self.sim, self.lte, self.connection,
+            status_code, level, state = send_backend_data(self.sim, self.modem, self.connection,
                                                           self.elevate_api.get_state, self.uBirch_uuid, '')
             # communication worked in general, now check server response
             if not 200 <= status_code < 300:
