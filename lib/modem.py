@@ -91,7 +91,7 @@ class Modem(ModemInterface):
                 return self._send_at_cmd(cmd, expected_result_prefix)
             except Exception as e:
                 exc = e
-                time.sleep(0.2)
+                time.sleep_ms(50)
         else:
             raise exc
 
