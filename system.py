@@ -7,7 +7,9 @@ from lib.connection import get_connection, NB_IoT
 from lib.elevate_api import ElevateAPI
 from lib.ubirch import SimProtocol, UbirchAPI
 
+import lib.logging as logging
 from lib.helpers import *
+from lib.led_breath import LedBreath
 from lib.modem import Modem
 from sensor import MovementSensor
 
