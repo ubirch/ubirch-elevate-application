@@ -7,7 +7,9 @@ from lib.connection import get_connection, NB_IoT
 from lib.elevate_api import ElevateAPI
 from lib.ubirch import SimProtocol, UbirchAPI
 
+import lib.logging as logging
 from lib.helpers import *
+from lib.led_breath import LedBreath
 from lib.modem import Modem
 from sensor import MovementSensor
 
@@ -137,7 +139,7 @@ class System:
         # initialise the protocol instance
         try:
             self.sim = SimProtocol(modem=self.modem, at_debug=self.debug)
-            self.sim.sim_pin = self.sim_pin # TODO CHECK
+            self.sim.sim_pin = self.sim_pin # TODO this might be temporary
         except Exception as e:
             raise(Exception("Error initializing the SimProtocol (ElevateSim)" + str(e)))
 

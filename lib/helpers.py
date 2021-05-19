@@ -1,11 +1,9 @@
-import math
 import uos as os
 import utime as time
 from uuid import UUID
 import gc
 
 import machine
-import pycom
 
 from lib.modem import Modem
 import lib.ubirch as ubirch
@@ -46,13 +44,13 @@ COLOR_UNKNOWN_FAIL = LED_WHITE_BRIGHT
 
 
 ########
+log = logging.getLogger()
 
 GARBAGE_COLLECT_MAX_BYTES = 524288
-def garbage_collector_setup(debug: bool = True):
+def garbage_collector_setup():
     gc.enable()
     gc.threshold(GARBAGE_COLLECT_MAX_BYTES)
-    if debug:
-        print("garbage collector threshold = {} Byte".format(gc.threshold()))
+    log.debug("garbage collector threshold = {} Byte".format(gc.threshold()))
 
 
 def mount_sd():
@@ -73,18 +71,18 @@ def store_imsi(imsi: str):
     # save imsi to file on SD, SD needs to be mounted
     imsi_file = "imsi.txt"
     if imsi_file not in os.listdir('/sd'):
-        print("\twriting IMSI to SD")
+        log.debug("writing IMSI to SD")
         with open('/sd/' + imsi_file, 'w') as f:
             f.write(imsi)
 
 
 def get_pin_from_flash(pin_file: str, imsi: str) -> str or None:
     if pin_file in os.listdir():
-        print("\tloading PIN for " + imsi)
+        log.debug("loading PIN for " + imsi)
         with open(pin_file, "rb") as f:
             return f.readline().decode()
     else:
-        print("\tno PIN found for " + imsi)
+        log.warning("no PIN found for " + imsi)
         return None
 
 
@@ -105,7 +103,7 @@ def send_backend_data(sim: ubirch.SimProtocol, modem: Modem, conn: Connection, a
     for reset_attempts in range(MAX_MODEM_RESETS + 1):
         # check if this is a retry for reset_attempts
         if reset_attempts > 0:
-            print("\tretrying with modem reset")
+            log.debug("retrying with modem reset")
             sim.deinit()
             modem.reset()
             sim.init()
@@ -116,21 +114,20 @@ def send_backend_data(sim: ubirch.SimProtocol, modem: Modem, conn: Connection, a
             for send_attempts in range(MAX_RECONNECTS + 1):
                 # check if this is a retry for send_attempts
                 if send_attempts > 0:
-                    print("\tretrying with disconnect/reconnect")
+                    log.debug("retrying with disconnect/reconnect")
                     conn.disconnect()
                     conn.ensure_connection()
                 try:
-                    print("\tsending...")
+                    log.info("sending...")
                     return api_function(uuid, data)
                 except Exception as e:
-                    # TODO: log/print exception?
-                    print("\tsending failed: {}".format(e))
+                    log.debug("sending failed: {}".format(e))
                     # (continues to top of send_attempts loop)
             else:
                 # all send attempts used up
                 raise Exception("all send attempts failed")
         except Exception as e:
-            print(repr(e))
+            log.debug(repr(e))
             # (continues to top of reset_attempts loop)
     else:
         # all modem resets used up
@@ -141,7 +138,7 @@ def bootstrap(imsi: str, api: ubirch.UbirchAPI) -> str:
     """
     Load bootstrap PIN, returns PIN
     """
-    print("\tbootstrapping SIM identity " + imsi)
+    log.info("bootstrapping SIM identity " + imsi)
     status_code, content = api.bootstrap_sim_identity(imsi)
     if not 200 <= status_code < 300:
         raise Exception("bootstrapping failed: ({}) {}".format(status_code, str(content)))
@@ -237,98 +234,6 @@ def get_upp_payload(upp: bytes) -> bytes:
 
     payload_len = upp[payload_start_idx - 1]
     return upp[payload_start_idx:payload_start_idx + payload_len]
-
-
-class LedBreath(object):
-    """
-    Class LedBreath lets the RGB LED from the PyCom module breath
-    according to the time ticks.
-    If the breathing does not work for a while, it means the controller is not running
-    """
-
-    def __init__(self):
-        self.period = 5000.0
-        self.color = 0xFF00FF
-        self.brightness = 0xFF
-        # storage for backup values, used for blinking method
-        self.period_back = self.period
-        self.color_back = self.color
-        self.brightness_back = self.brightness
-
-    def update(self):
-        """
-        Update the breathing, means to calculate the new intensity value of the light
-        and set the RGB LED accordingly.
-        The breathing follows a sinewave with a period of self.period
-        and the time is controlled by time.ticks_ms().
-        """
-        # calculate the intensity
-        _intensity = self.brightness / 512.0 * (math.sin(time.ticks_ms() / self.period * 2 * math.pi) + 1)
-        if _intensity < 0.1:
-            _intensity = 0.1
-        # split the color into the RGB components
-        _red = self.color >> 16 & 0xFF
-        _green = self.color >> 8 & 0xFF
-        _blue = self.color & 0xFF
-        # combine the intensity and the colors into the new ligh value
-        _light = (int(_intensity * _red) << 16) + \
-                 (int(_intensity * _green) << 8) + \
-                 (int(_intensity * _blue))
-        # set the RGBLED to the new value
-        pycom.rgbled(_light)
-
-    def set_color(self, color):
-        """
-        set_color is used to set the color of the RGB LED and update it directly.
-        This color will stay until it is changed.
-        :param color: is the color value in R,G,B
-        """
-        self.color = color & 0xFFFFFF
-        self.update()
-
-    def set_brightness(self, brightness):
-        """
-        set_brightness is used to set the brightness of the RGB LED light at maximum.
-        The default value is 0xFF
-        :param brightness: is the brightness at maximum of the breathing interval
-        """
-        self.brightness = brightness & 0xFF
-        self.update()
-
-    def set_period(self, period_ms):
-        """
-        set_period is used to set the period [ms] of the RGB LED light breathing.
-        The default value is 5000 ms
-        :param period_ms: is the period [ms] of the breathing interval
-        """
-        self.period = period_ms
-        self.update()
-
-    def set_blinking(self):
-        """
-        set_blinking is used to set the LED breathing to a fast a bright mode.
-        This Method shall be used to make the sensor visible and recognizable.
-        """
-        # first backup the old values
-        self.period_back = self.period
-        self.color_back = self.color
-        self.brightness_back = self.brightness
-        # now set a bright red color with 1000 ms period
-        self.period = 1000
-        self.color = 0xFF8010
-        self.brightness = 0xFF
-        self.update()
-
-    def reset_blinking(self):
-        """
-        reset_blinking is used to set the LED breathing to a fast a bright mode.
-        This Method shall be used to reset the .
-        """
-        # get back the backuped values
-        self.period = self.period_back
-        self.color = self.color_back
-        self.brightness = self.brightness_back
-        self.update()
 
 
 def write_backlog(unsent_msgs: list, backlog_file: str, max_len: int) -> None:

@@ -36,8 +36,6 @@ class Response:
         import ujson
         return ujson.loads(self.content)
 
-# storage for ssl sessions, for faster connection
-ssl_stored_sessions = dict({})
 
 def request(method, url, data=None, json=None, headers=None, stream=None, parse_headers=True):
     if headers is None:
@@ -76,6 +74,7 @@ def request(method, url, data=None, json=None, headers=None, stream=None, parse_
             resp_d = {}
 
         s = usocket.socket(ai[0], ai[1], ai[2])
+        s.settimeout(60)
         try:
             if proto == "https:":
                 s = ussl.wrap_socket(s, server_hostname=host)

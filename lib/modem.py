@@ -163,7 +163,7 @@ class Modem(ModemInterface):
         Throws an exception if reset fails.
         """
         function_level = "1"
-        cereg_level = "1" # TODO CHECK for how long this is necessary
+        cereg_level = "1" # TODO keep for now, until first real deployment
 
         if self.debug: print("\twaiting for reset to finish")
         self.lte.reset()

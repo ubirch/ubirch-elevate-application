@@ -15,12 +15,12 @@ DEBUG    = 10
 NOTSET   = 0
 
 _level_dict = {
-    CRITICAL: "CRITICAL",
+    CRITICAL: "CRIT ",
     ERROR: "ERROR",
-    WARNING: "WARNING",
-    INFO: "INFO",
+    WARNING: "WARN ",
+    INFO: "INFO ",
     DEBUG: "DEBUG",
-}
+} # all output string equally long, for better readability
 
 
 class Logger:
