@@ -79,8 +79,11 @@ class NB_IoT(Connection):
 
     def cb_handler(self, arg):
         print("CB: LTE Coverage lost")
-        self.lte.deinit()
+        self.reconnect()
 
+    def reconnect(self):
+        self.disconnect()
+        self.ensure_connection()
 
 class WIFI(Connection):
 

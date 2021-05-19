@@ -325,8 +325,8 @@ class StateSendingDiagnostics(State):
         version = get_current_version()
 
         # get the signal quality and network status
-        rssi, ber = state_machine.system.sim.get_signal_quality(state_machine.system.debug)
-        cops = state_machine.system.sim.get_network_stats(state_machine.system.debug)  # TODO this is not yet decyphered
+        rssi, ber = state_machine.system.sim.get_signal_quality()
+        cops = state_machine.system.sim.get_network_stats()  # TODO this is not yet decyphered
         event = ({'properties.variables.cellSignalPower': {'value': rssi},
                   'properties.variables.cellSignalQuality': {'value': ber},
                   'properties.variables.cellTechnology': {'value': cops},
@@ -411,10 +411,10 @@ class StateMeasuringPaused(State):
         })
         state_machine.system.send_event(event, ubirching=True)
         # now send the state log also
-        last_log = state_machine.concat_state_log()
-        if not last_log == "":
-            event = ({'properties.variables.lastLogContent': {'value': last_log}})
-            state_machine.system.send_event(event)
+        # last_log = state_machine.concat_state_log() TODO CHECK this might be obsolete
+        # if not last_log == "":
+        #     event = ({'properties.variables.lastLogContent': {'value': last_log}})
+        #     state_machine.system.send_event(event)
 
         now = time.time()
         if now >= self.enter_timestamp + STANDARD_DURATION_S:

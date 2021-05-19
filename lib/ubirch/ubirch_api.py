@@ -19,7 +19,7 @@ def _send_request(url: str, data: bytes, headers: dict) -> (int, bytes):
     return status_code, content
 
 
-class API:
+class UbirchAPI:
     """ubirch API accessor methods."""
 
     def __init__(self, cfg: dict):
