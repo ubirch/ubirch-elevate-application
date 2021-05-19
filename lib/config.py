@@ -67,8 +67,11 @@ def load_config(sd_card_mounted: bool = False) -> dict:
         cfg['niomon'] = NIOMON_SERVICE.format(cfg['env'])
 
     # now make sure the env key has the actual environment value that is used in the URL
-#     cfg['env'] = cfg['niomon'].split(".")[1] TODO this is for HTTPS
-    cfg['env'] = cfg['niomon'].split(".")[2] # TODO this is for HTTP
+    if "https" in cfg['niomon']:
+        cfg['env'] = cfg['niomon'].split(".")[1] # https endpoint
+    else:
+        cfg['env'] = cfg['niomon'].split(".")[2] # http endpoint
+
     if cfg['env'] not in ["dev", "demo", "prod"]:
         raise Exception("invalid ubirch backend environment \"{}\"".format(cfg['env']))
 

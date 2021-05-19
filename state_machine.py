@@ -326,7 +326,7 @@ class StateSendingDiagnostics(State):
 
         # get the signal quality and network status
         rssi, ber = state_machine.system.sim.get_signal_quality()
-        cops = state_machine.system.sim.get_network_stats()  # TODO this is not yet decyphered
+        cops = state_machine.system.sim.get_network_stats()
         event = ({'properties.variables.cellSignalPower': {'value': rssi},
                   'properties.variables.cellSignalQuality': {'value': ber},
                   'properties.variables.cellTechnology': {'value': cops},
@@ -410,11 +410,6 @@ class StateMeasuringPaused(State):
             'properties.variables.temperature': {'value': state_machine.system.get_temperature()}
         })
         state_machine.system.send_event(event, ubirching=True)
-        # now send the state log also
-        # last_log = state_machine.concat_state_log() TODO CHECK this might be obsolete
-        # if not last_log == "":
-        #     event = ({'properties.variables.lastLogContent': {'value': last_log}})
-        #     state_machine.system.send_event(event)
 
         now = time.time()
         if now >= self.enter_timestamp + STANDARD_DURATION_S:
@@ -526,7 +521,7 @@ class StateError(State):
         raise SystemError("exiting the error state should never happen here")
 
     def _update(self, state_machine):
-        try:  # just build that in, because of recent error, which caused the controller to be BRICKED TODO: check this again
+        try:
             if state_machine.lastError:
                 log.error("Last error: {}".format(state_machine.lastError))
 

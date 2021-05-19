@@ -46,13 +46,13 @@ COLOR_UNKNOWN_FAIL = LED_WHITE_BRIGHT
 
 
 ########
+log = logging.getLogger()
 
 GARBAGE_COLLECT_MAX_BYTES = 524288
-def garbage_collector_setup(debug: bool = True):
+def garbage_collector_setup():
     gc.enable()
     gc.threshold(GARBAGE_COLLECT_MAX_BYTES)
-    if debug:
-        print("garbage collector threshold = {} Byte".format(gc.threshold()))
+    log.debug("garbage collector threshold = {} Byte".format(gc.threshold()))
 
 
 def mount_sd():
@@ -73,18 +73,18 @@ def store_imsi(imsi: str):
     # save imsi to file on SD, SD needs to be mounted
     imsi_file = "imsi.txt"
     if imsi_file not in os.listdir('/sd'):
-        print("\twriting IMSI to SD")
+        log.debug("writing IMSI to SD")
         with open('/sd/' + imsi_file, 'w') as f:
             f.write(imsi)
 
 
 def get_pin_from_flash(pin_file: str, imsi: str) -> str or None:
     if pin_file in os.listdir():
-        print("\tloading PIN for " + imsi)
+        log.debug("loading PIN for " + imsi)
         with open(pin_file, "rb") as f:
             return f.readline().decode()
     else:
-        print("\tno PIN found for " + imsi)
+        log.warning("no PIN found for " + imsi)
         return None
 
 
@@ -105,7 +105,7 @@ def send_backend_data(sim: ubirch.SimProtocol, modem: Modem, conn: Connection, a
     for reset_attempts in range(MAX_MODEM_RESETS + 1):
         # check if this is a retry for reset_attempts
         if reset_attempts > 0:
-            print("\tretrying with modem reset")
+            log.debug("retrying with modem reset")
             sim.deinit()
             modem.reset()
             sim.init()
@@ -116,21 +116,20 @@ def send_backend_data(sim: ubirch.SimProtocol, modem: Modem, conn: Connection, a
             for send_attempts in range(MAX_RECONNECTS + 1):
                 # check if this is a retry for send_attempts
                 if send_attempts > 0:
-                    print("\tretrying with disconnect/reconnect")
+                    log.debug("retrying with disconnect/reconnect")
                     conn.disconnect()
                     conn.ensure_connection()
                 try:
-                    print("\tsending...")
+                    log.info("sending...")
                     return api_function(uuid, data)
                 except Exception as e:
-                    # TODO: log/print exception?
-                    print("\tsending failed: {}".format(e))
+                    log.exception("sending failed: {}".format(e))
                     # (continues to top of send_attempts loop)
             else:
                 # all send attempts used up
                 raise Exception("all send attempts failed")
         except Exception as e:
-            print(repr(e))
+            log.exception(repr(e))
             # (continues to top of reset_attempts loop)
     else:
         # all modem resets used up
@@ -141,7 +140,7 @@ def bootstrap(imsi: str, api: ubirch.UbirchAPI) -> str:
     """
     Load bootstrap PIN, returns PIN
     """
-    print("\tbootstrapping SIM identity " + imsi)
+    log.info("bootstrapping SIM identity " + imsi)
     status_code, content = api.bootstrap_sim_identity(imsi)
     if not 200 <= status_code < 300:
         raise Exception("bootstrapping failed: ({}) {}".format(status_code, str(content)))

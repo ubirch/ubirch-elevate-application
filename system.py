@@ -137,7 +137,7 @@ class System:
         # initialise the protocol instance
         try:
             self.sim = SimProtocol(modem=self.modem, at_debug=self.debug)
-            self.sim.sim_pin = self.sim_pin # TODO CHECK
+            self.sim.sim_pin = self.sim_pin # TODO this might be temporary
         except Exception as e:
             raise(Exception("Error initializing the SimProtocol (ElevateSim)" + str(e)))
 

@@ -72,8 +72,7 @@ class LIS2HH12:
         self.act_dur = 0
         self.debounced = False
         self._user_handler = None
-        # reboot the accelerometer, to be sure it works as axpected
-        # TODO has to be checked if necessary
+        # reboot the accelerometer, to be sure it works as expected
         self.force_reboot()
 
         whoami = self.i2c.readfrom_mem(ACC_I2CADDR, PRODUCTID_REG, 1)
