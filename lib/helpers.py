@@ -121,13 +121,13 @@ def send_backend_data(sim: ubirch.SimProtocol, modem: Modem, conn: Connection, a
                     log.info("sending...")
                     return api_function(uuid, data)
                 except Exception as e:
-                    log.exception("sending failed: {}".format(e))
+                    log.debug("sending failed: {}".format(e))
                     # (continues to top of send_attempts loop)
             else:
                 # all send attempts used up
                 raise Exception("all send attempts failed")
         except Exception as e:
-            log.exception(repr(e))
+            log.debug(repr(e))
             # (continues to top of reset_attempts loop)
     else:
         # all modem resets used up
