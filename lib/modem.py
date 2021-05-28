@@ -166,7 +166,8 @@ class Modem(ModemInterface):
         cereg_level = "1" # TODO keep for now, until first real deployment
 
         if self.debug: print("\twaiting for reset to finish")
-        self.lte.reset()
+        self.lte.deinit(detach=True, reset=True)
+        #self.lte.reset()
         self.lte.init()
 
         self.set_function_level(function_level)

@@ -25,16 +25,16 @@ class NB_IoT(Connection):
         self.attachtimeout = attachtimeout
         self.connecttimeout = connecttimeout
 
-        self.lte.lte_callback(LTE.EVENT_COVERAGE_LOSS, self.cb_handler)
+        # self.lte.lte_callback(LTE.EVENT_COVERAGE_LOSS, self.cb_handler)
 
     def attach(self):
         if self.lte.isattached():
             return
 
-        print("\tattaching to the NB-IoT network", end="")
+        print("\tattaching to the NB-IoT network for max. {} seconds".format(self.attachtimeout), end="")
         # since we disable unsolicited CEREG messages in modem.py, as they interfere with AT communication with the SIM via CSIM commands,
         # we are required to use an attach method that does not require cereg messages, for pycom that is legacyattach=false
-        self.lte.attach(apn=self.apn, band=self.band, legacyattach=False)
+        self.lte.attach(apn=self.apn, band=self.band, legacyattach=True)
         i = 0
         while not self.lte.isattached() and i < self.attachtimeout:
             i += 1
@@ -51,7 +51,7 @@ class NB_IoT(Connection):
 
         if not self.lte.isattached(): self.attach()
 
-        print("\tconnecting to the NB-IoT network", end="")
+        print("\tconnecting to the NB-IoT network for max. {} seconds".format(self.connecttimeout), end="")
         self.lte.connect()  # start a data session and obtain an IP address
         i = 0
         while not self.lte.isconnected() and i < self.connecttimeout:
@@ -78,7 +78,8 @@ class NB_IoT(Connection):
         self.connecttimeout = connecttimeout
 
     def cb_handler(self, arg):
-        print("CB: LTE Coverage lost")
+        ev = arg.events()  # NB: reading the events also clears them
+        print("LTE CB at {}, with event {}".format(time.time(), ev))
         self.reconnect()
 
     def reconnect(self):
