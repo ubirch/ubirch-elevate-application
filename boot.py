@@ -504,7 +504,10 @@ class OTA():
             pass  # There isnt a previous backup
 
         # Backup current file
-        os.rename(dest_path, bak_path)
+        try:
+            os.rename(dest_path, bak_path)
+        except OSError as e:
+            print("OTA: Cannot backup file to be updated (%s): %s" % (f, str(e)))
 
     def delete_file(self, f):
         bak_path = "/{}.bak_del".format(f)
