@@ -370,6 +370,36 @@ class OTA():
         gc.collect()
         return manifest
 
+    def check_path(self, file_path):
+        """ checks if the folder leaving to the given file path exist/creates them """
+        # split the path into its parts
+        # the last element is the file name; all before are folders
+        path_parts = file_path.split("/")[:-1]
+
+        # string to store the path of existent dirs
+        current_path = "/"
+
+        # go trough the parts
+        for part in path_parts:
+            # ignore potential empty parts originating from splitting up paths like
+            #  /flash/... (leading /)
+            #  /flash//lib (double /)
+            if part.strip() == "":
+                continue
+
+            # assemble the new path
+            new_path = current_path + part
+
+            # check if the part (dir) is not found in the current directory
+            # remove the trailing / if the path does consist of more than just the /
+            # os.listdir("/flash/lib/") will cause an EINVAL error
+            if not part in os.listdir(current_path[:-1] if (len(current_path) > 1 and current_path[-1] == "/") else current_path):
+                # create it
+                os.mkdir(new_path)
+
+            # set the current_path and add a / for the next part
+            current_path = new_path + "/"
+
     def update(self):
         manifest = self.get_update_manifest()
 
@@ -389,6 +419,9 @@ class OTA():
 
         # Download new files and verify hashes
         for f in manifest['new'] + manifest['update']:
+            # check if the path exists/create it
+            self.check_path(f['dst_path'])
+
             # Upto 5 retries
             for _ in range(5):
                 try:
