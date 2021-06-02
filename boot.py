@@ -241,7 +241,7 @@ class OTA():
     def connect(self):
         raise NotImplementedError()
 
-    def get_data(self, req, dest_path=None, hash=False):
+    def get_data(self, req, dest_path=None, hash=False, hasher=uhashlib.sha512):
         raise NotImplementedError()
 
     # The returned id string will be used in the request to the server to make device identification easier
@@ -370,6 +370,36 @@ class OTA():
         gc.collect()
         return manifest
 
+    def check_path(self, file_path):
+        """ checks if the folder leaving to the given file path exist/creates them """
+        # split the path into its parts
+        # the last element is the file name; all before are folders
+        path_parts = file_path.split("/")[:-1]
+
+        # string to store the path of existent dirs
+        current_path = "/"
+
+        # go trough the parts
+        for part in path_parts:
+            # ignore potential empty parts originating from splitting up paths like
+            #  /flash/... (leading /)
+            #  /flash//lib (double /)
+            if part.strip() == "":
+                continue
+
+            # assemble the new path
+            new_path = current_path + part
+
+            # check if the part (dir) is not found in the current directory
+            # remove the trailing / if the path does consist of more than just the /
+            # os.listdir("/flash/lib/") will cause an EINVAL error
+            if not part in os.listdir(current_path[:-1] if (len(current_path) > 1 and current_path[-1] == "/") else current_path):
+                # create it
+                os.mkdir(new_path)
+
+            # set the current_path and add a / for the next part
+            current_path = new_path + "/"
+
     def update(self):
         manifest = self.get_update_manifest()
 
@@ -389,6 +419,9 @@ class OTA():
 
         # Download new files and verify hashes
         for f in manifest['new'] + manifest['update']:
+            # check if the path exists/create it
+            self.check_path(f['dst_path'])
+
             # Upto 5 retries
             for _ in range(5):
                 try:
@@ -497,6 +530,209 @@ class OTA():
     #                          firmware=True)
     #     # TODO: Add verification when released in future firmware
 
+    def check_stored_files(self) -> int:
+        """ uses a hashlist to check all stored files for integrity """
+        #
+        # TODO checking/reloading boot.py is currently disabled
+        #
+        # the aim of the at-boot-time check is to detect compromised files and
+        # reload them from the server to prevent unexpected runtime errors
+        # it should only be run when no update was performed (firmware is up to date)
+        # or the performed update was fully successful
+        # if files were found to be corrupted and were replaced, the device should reboot
+        # to prevent bootloops, this check failing should not be considered critical and
+        # device should not reboot
+        #
+        # the function returns the number of reloaded files
+        #
+        # this function relies on the existence of a hashlist:
+        #   /flash/hashlist.txt
+        #
+        # this file has the following layout: (to the left: line number)
+        #   01 | HASH_ALGORITHM
+        #   02 | RELATIVE_SERVER_RELEASE_PATH
+        #   mn | HASH LOCAL_FILE_PATH
+        #
+        # a possible example would be:
+        #   01 | md5
+        #   02 | fw_release/1.0.1/
+        #   03 | cc35b685ebaf792da25c006758890adf ./flash/lib/config.py
+        #   04 | 4361596e9dade2612120d84a43455e57 ./flash/lib/urequests.py
+        #   ...
+        #
+        # the hashlist must not contain itselfs
+        #
+        # supported hash algorithms currently are:
+        #   md5, sha1, sha224, sha256, sha384 and sha512
+        #
+        # this limitation is based on the integrated mircropython library uhashlib
+        # while not being considered secure for password hashing (...) md5 is the
+        # favorable choice in this scenario because it is significantly lighter both
+        # in storage and computing compared to sha256 or sha512
+        # also note that the function losely matches HASH_ALGORITHM so that sha1sum will
+        # be interpreted as sha1; this also means that some imaginary - unsupported -
+        # algorithm like Bsha2561 will be interpreted as sha256
+        #
+        # the LOCAL_FILE_PATH is allowed to ether beging with a '/' or a './'
+        # for the latter the client (here) needs to remove the '.' before using the
+        # path since Micropythons implementation of os.chdir() does not move to '/flash'
+        # when called from '/' with os.chdir("./flash")
+        #
+
+        reloaded_n = 0
+
+        print("############ Beginning integrity check of stored files ############")
+
+        # check for "/flash/hashlist.txt"
+        try:
+            hl_fd = open("/flash/hashlist.txt", "r")
+        except OSError:
+            print(
+                "[*] Aborting integrity check, hashlist not found (/flash/hashlist.txt)")
+            print("###################################################################")
+
+            return reloaded_n
+
+        # get the hash algorithm and initialise the hasher
+        hash_alg_str = hl_fd.readline().strip("\n")
+
+        if "md5" in hash_alg_str:
+            _hasher = uhashlib.md5
+        elif "sha1" in hash_alg_str:
+            _hasher = uhashlib.sha1
+        elif "sha224" in hash_alg_str:
+            _hasher = uhashlib.sha224
+        elif "sha256" in hash_alg_str:
+            _hasher = uhashlib.sha256
+        elif "sha384" in hash_alg_str:
+            _hasher = uhashlib.sha384
+        elif "sha512" in hash_alg_str:
+            _hasher = uhashlib.sha512
+        else:
+            print(
+                "[!] Aborting integrity check, unsupported hash algorithm: %s!" % hash_alg_str)
+            print("###################################################################")
+
+            return reloaded_n
+
+        print("[*] Using %s hashing for integrity check" % _hasher.__name__)
+
+        # get the relative server-side release path
+        rel_release_path = hl_fd.readline().strip("\n")
+
+        print("[*] Relative server side release path set to %s" %
+              rel_release_path)
+
+        # go trough the actual hash list
+        for _line in hl_fd.readlines():
+            line = _line.strip("\n").split()
+
+            # check if there are exactly two elements; hash and path
+            if len(line) != 2:
+                print("[!] Formatting errors in the hashlist!")
+
+                break
+
+            hash_str = line[0]
+            path_str = line[1]
+
+            # skip if the path matches boot.py
+            # TODO this might be changed later
+            if path_str.split("/")[-1] == "boot.py":
+                continue
+
+            # bring the path into a usable format
+            if path_str[0] == ".":
+                path_str = path_str[1:]
+
+            path_tmp = path_str + ".tmp"  # path for the download
+
+            print("[*] Checking %s:%s" % (path_str, hash_str))
+
+            # try to open the file
+            try:
+                f_fd = open(path_str, "rb")
+            except OSError as e:
+                print("[!] Error opening file %s: %s" % (path_str, str(e)))
+            else:
+                # create the hasher
+                hasher = _hasher()
+
+                # feed the file into the hasher
+                hasher.update(f_fd.read())
+
+                # close the file
+                f_fd.close()
+
+                # get the hash
+                hashv = ubinascii.hexlify(hasher.digest()).decode()
+
+                # compare the hash values
+                if hashv != hash_str:
+                    print("[M] Mismatching hashes for %s: %s (is) vs. %s (should be)" % (
+                        path_str, hashv, hash_str))
+                else:
+                    # file was found and the hash is correct; go to the next one
+                    continue
+
+            # file not found or hash incorrect -> reload the file; try 5 imes
+            http_get_path = "%s/%s" % (rel_release_path, path_str)
+
+            print("[*] Trying to load %s from the server to %s" %
+                  (http_get_path, path_tmp))
+
+            failed = False
+
+            for i in range(5):
+                try:
+                    # save the file to FILENAME.tmp
+                    dl_hash = self.get_data(
+                        http_get_path, path_tmp, hash=True, hasher=_hasher)
+                except Exception as e:
+                    print("[!] %s" % str(e))
+
+                    if i != 4:
+                        print("[!] Error getting %s! Trying again %d more times" % (
+                            http_get_path, 5 - i))
+                    else:
+                        print("[!] Finally failed to load %s!" % http_get_path)
+
+                        failed = True
+                else:
+                    break
+
+            if failed == True:
+                # failure - abort
+                break
+
+            # check if the hash of the downloaded file matches
+            if dl_hash != hash_str:
+                print("[M] Downloaded file hash mismatch %s: %s (is) vs. %s (should be)" % (
+                    http_get_path, dl_hash, hash_str))
+
+                break
+
+            # the hash is correct -> file is good; replace the old one
+            try:
+                os.remove(path_str)
+            except:
+                # remove the file is expected to fail is the fail for some reason did not exist
+                pass
+
+            os.rename(path_tmp, path_str)
+
+            # successfully reloaded a file
+            reloaded_n += 1
+
+            print("[*] Successfully reloaded %s from the OTA server" % path_str)
+
+        hl_fd.close()
+
+        print("###################################################################")
+
+        return reloaded_n
+
+
 class WiFiOTA(OTA):
     def __init__(self, ssid, password,sockettimeout:int=60):
         self.SSID = ssid
@@ -583,7 +819,7 @@ class WiFiOTA(OTA):
         req = bytes(req_fmt.format(path, host), 'utf8')
         return req
 
-    def get_data(self, req, dest_path=None, hash=False):
+    def get_data(self, req, dest_path=None, hash=False, hasher=uhashlib.sha512):
         # board firmware download is disabled as it needs to
         # be rewritten to not ignore the file hash
         firmware=False
@@ -612,7 +848,7 @@ class WiFiOTA(OTA):
             if firmware:
                 pycom.ota_start()
 
-            h = uhashlib.sha512()
+            h = hasher()
 
             # Get data from server
             result = s.recv(100)
@@ -777,7 +1013,7 @@ class NBIoTOTA(OTA):
         req = bytes(req_fmt.format(path, host), 'utf8')
         return req
 
-    def get_data(self, req, dest_path=None, hash=False):
+    def get_data(self, req, dest_path=None, hash=False, hasher=uhashlib.sha512):
         # board firmware download is disabled as it needs to
         # be rewritten to not ignore the file hash
         firmware=False
@@ -806,7 +1042,7 @@ class NBIoTOTA(OTA):
             if firmware:
                 pycom.ota_start()
 
-            h = uhashlib.sha512()
+            h = hasher()
 
             # Get data from server
             result = s.recv(100)
@@ -900,6 +1136,15 @@ def check_OTA_update():
         print("Current version: ", ota.get_current_version())
         ota.connect(url=SERVER_URL,port=SERVER_PORT)
         ota.update()
+
+        # the update did not fail, proceed to check file integrity
+        n = ota.check_stored_files()
+
+        if n > 0:
+            print("%d corrupted files detected and reloaded! Rebooting ..." % n)
+
+            time.sleep(0.5)
+            machine.reset()
     except Exception as e:
         raise(e)#let top level loop handle exception
     finally:
