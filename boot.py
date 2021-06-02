@@ -434,11 +434,6 @@ class OTA():
             else:
                 raise Exception("Failed to download `{}`".format(f['URL']))
 
-        # Backup old files
-        # only once all files have been successfully downloaded
-        for f in manifest['update']:
-            self.backup_file(f)
-
         # Rename new files to proper name
         for f in manifest['new'] + manifest['update']:
             new_path = "{}.new".format(f['dst_path'])
@@ -446,8 +441,7 @@ class OTA():
 
             os.rename(new_path, dest_path)
 
-        # `Delete` files no longer required
-        # This actually makes a backup of the files incase we need to roll back
+        # delete files no longer required
         for f in manifest['delete']:
             self.delete_file(f)
 
@@ -458,11 +452,6 @@ class OTA():
             # the file and needs to be rewritten
             #self.write_firmware(manifest['firmware'])
 
-        # Save version number
-        try:
-            self.backup_file({"dst_path": "/flash/OTA_VERSION.py"})
-        except OSError:
-            pass  # There isnt a previous file to backup
         with open("/flash/OTA_VERSION.py", 'w') as fp:
             fp.write("VERSION = '{}'".format(manifest['new_version']))
         from OTA_VERSION import VERSION
@@ -493,39 +482,13 @@ class OTA():
             msg = "Downloaded file's hash does not match expected hash"
             raise Exception(msg)
 
-    def backup_file(self, f):
-        bak_path = "{}.bak".format(f['dst_path'])
-        dest_path = "{}".format(f['dst_path'])
-
-        # Delete previous backup if it exists
-        try:
-            os.remove(bak_path)
-        except OSError:
-            pass  # There isnt a previous backup
-
-        # Backup current file
-        try:
-            os.rename(dest_path, bak_path)
-        except OSError as e:
-            print("OTA: Cannot backup file to be updated (%s): %s" % (f, str(e)))
-
     def delete_file(self, f):
-        bak_path = "/{}.bak_del".format(f)
         dest_path = "/{}".format(f)
 
-        # Delete previous delete backup if it exists
         try:
-            os.remove(bak_path)
-        except OSError:
-            pass  # There isnt a previous delete backup
-
-        # Backup current file
-        # if it exists
-        try:
-            os.stat(dest_path)#raises exception if file does not exist
-            os.rename(dest_path, bak_path)
-        except:
-            print("Warning: could not delete (rename to .bak_del) the file ",dest_path)
+            os.remove(dest_path)
+        except OSError as e:
+           print("OTA: Cannot delete file %s: %s" % (dest_path, str(e)))
 
     # def write_firmware(self, f):
     #     hash = self.get_data(f['URL'].split("/", 3)[-1],
