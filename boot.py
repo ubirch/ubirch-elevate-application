@@ -30,6 +30,7 @@ import gc
 import pycom
 import uos as os
 import time
+import uzlib
 from time import sleep
 import ubinascii
 import ucrypto
@@ -327,7 +328,7 @@ class OTA():
         """
         #generate request id string (based on random bits)
         request_id = ubinascii.hexlify(ucrypto.getrandbits(128)).decode('utf-8')
-        req = "manifest.json?current_ver={}&devid={}&reqid={}&protocol={}".format(self.get_current_version(),self.get_device_id(),request_id,self.PROTOCOL_VERSION)
+        req = "manifest.json?current_ver={}&devid={}&reqid={}&protocol={}&usezlib=1".format(self.get_current_version(),self.get_device_id(),request_id,self.PROTOCOL_VERSION)
         response = self.get_data(req).decode()
 
         # print("response: {}".format(response))
@@ -439,6 +440,24 @@ class OTA():
             new_path = "{}.new".format(f['dst_path'])
             dest_path = "{}".format(f['dst_path'])
 
+            # make sure dst_path if "free"
+            try:
+                os.remove(dest_path)
+            except:
+                pass
+
+            # check whether the file is compressed (zlib) or not
+            if len(f["URL"]) >= len(".zlib") and f["URL"][-5:] == ".zlib":
+                print("Decompressing file: %s" % new_path)
+
+                # decompress the contents and write them back into new_path
+                with open(new_path, "rb") as fd:
+                    data = uzlib.decompress(fd.read())
+
+                with open(new_path, "wb") as fd:
+                    fd.write(data)
+
+            # move the file into its correct place
             os.rename(new_path, dest_path)
 
         # delete files no longer required
