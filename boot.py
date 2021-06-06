@@ -423,6 +423,22 @@ class OTA():
             # check if the path exists/create it
             self.check_path(f['dst_path'])
 
+            # check if the new-file already exists and if its hash macthes
+            # if it does there is no need to download it again
+            try:
+                with open("{}.new".format(f['dst_path']), "rb") as fd:
+                    # hash the file contents
+                    h = uhashlib.sha512(fd.read())
+
+                    # compare the hash values
+                    if ubinascii.hexlify(h.digest()).decode() == f["hash"]:
+                        print("File %s already downloaded with matching hash - skipping" % f["dst_path"])
+
+                        continue
+            except:
+                # file does not exist; go on
+                pass
+
             # Upto 5 retries
             for _ in range(5):
                 try:
