@@ -402,6 +402,10 @@ class OTA():
             current_path = new_path + "/"
 
     def update(self):
+        # keep track of downloaded bytes
+        bytesloaded = 0
+        bytesloadedUnc = 0
+
         manifest = self.get_update_manifest()
 
         #check if we are already on the latest version
@@ -456,6 +460,9 @@ class OTA():
             new_path = "{}.new".format(f['dst_path'])
             dest_path = "{}".format(f['dst_path'])
 
+            # get the size of the file for statistics
+            bytesloaded += os.stat(new_path)[6]
+
             # make sure dst_path if "free"
             try:
                 os.remove(dest_path)
@@ -476,6 +483,9 @@ class OTA():
             # move the file into its correct place
             os.rename(new_path, dest_path)
 
+            # get the size of the (uncompressed if compression is enabled) file for statistics
+            bytesloadedUnc += os.stat(dest_path)[6]
+
         # delete files no longer required
         for f in manifest['delete']:
             self.delete_file(f)
@@ -492,7 +502,7 @@ class OTA():
         from OTA_VERSION import VERSION
 
         # Reboot the device to run the new code
-        print("\nUpdate done. Resetting.")
+        print("\nUpdate done - Downloaded %d bytes (Uncompressed: %d). Resetting." % (bytesloaded, bytesloadedUnc))
         time.sleep(0.5)
         machine.reset()
 
